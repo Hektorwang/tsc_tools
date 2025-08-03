@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC1090,SC1091
+
+set -o errexit
+set -o nounset
+set -o pipefail
+set +o posix
+shopt -s nullglob
+
+BINARY_TOOLS_DIR="$(readlink -f "$(dirname "$0")")"
+
+# 目前支持的二进制工具
+readonly -A SUPPORTED_BINARY_TOOLS=(
+    ["fio"]="-v"
+    ["fping"]="-v"
+    ["glow"]="-v"
+    ["iperf3"]="-v"
+    ["jq"]="-V"
+    ["qrencode"]="-V"
+    ["sshpass"]="-V"
+    ["stress-ng"]="-V"
+)
+
+##################################################
+# 安装二进制工具
+# 全局变量:
+#   BINARY_TOOLS_DIR       (二进制工具所在目录)
+#   SUPPORTED_BINARY_TOOLS (array, 支持的二进制工具)
+# 参数:
+#   None
+##################################################
+_install() {
+    local tool_name failed_tools=() installed_tools=() missing_tools=()
+    for tool_name in "${!SUPPORTED_BINARY_TOOLS[@]}"; do
+        if "${tool_name}" "${SUPPORTED_BINARY_TOOLS[${tool_name}]}" &>/dev/null; then
+            installed_tools+=("${tool_name}")
+            continue
+        fi
+        if [[ ! -d "${BINARY_TOOLS_DIR}"/"${tool_name}" ]]; then
+            missing_tools+=("${tool_name}")
+            continue
+        fi
+        if [[ -f "${BINARY_TOOLS_DIR}"/"${tool_name}"/"${tool_name}-noarch" ]]; then
+            if \cp "${BINARY_TOOLS_DIR}/${tool_name}/${tool_name}-noarch" /bin/"${tool_name}"; then
+                chmod a+x /bin/"${tool_name}"
+                installed_tools+=("${tool_name}")
+            else
+                failed_tools+=("${tool_name}")
+            fi
+        elif [[ -f "${BINARY_TOOLS_DIR}"/"${tool_name}"/"${tool_name}-$(arch)" ]]; then
+
+            if \cp "${BINARY_TOOLS_DIR}"/"${tool_name}"/"${tool_name}-$(arch)" /bin/"${tool_name}"; then
+                chmod a+x /bin/"${tool_name}"
+                installed_tools+=("${tool_name}")
+            else
+                failed_tools+=("${tool_name}")
+            fi
+        fi
+    done
+
+    if [[ ${#failed_tools[@]} -gt 0 ]]; then
+        LOGWARNING "Failed to install: ${failed_tools[*]}"
+    fi
+    if [[ ${#missing_tools[@]} -gt 0 ]]; then
+        LOGWARNING "Missing install source file: ${missing_tools[*]}"
+    fi
+    if [[ ${#installed_tools[@]} -gt 0 ]]; then
+        LOGSUCCESS "Installed tools: ${installed_tools[*]}"
+    fi
+    LOGINFO "Install vimrc"
+    \cp "${BINARY_TOOLS_DIR}"/vimrc /root/.vimrc
+    LOGSUCCESS "Installed vimrc"
+}
+
+_install_raid_cli() {
+    if [[ $1 != "pm" ]]; then
+        return 0
+    fi
+    local is_storcli
+    is_storcli="$(
+        "${BINARY_TOOLS_DIR}/storcli64/storcli64-noarch" show 2>&1 |
+            grep -oP "(?<=^Number of Controllers = )\d+"
+    )"
+    if [[ "${is_storcli:-0}" -ne 0 ]]; then
+        \cp "${BINARY_TOOLS_DIR}/storcli64/storcli64-noarch" /bin/storcli64
+        chmod +x /bin/storcli64
+        LOGSUCCESS "Installed /bin/storcli64"
+    fi
+    local is_arcconf
+    "${BINARY_TOOLS_DIR}/arcconf/arcconf-$(arch)" GETCONFIG 1 PD &>/dev/null
+    is_arcconf=$?
+    if [[ "${is_arcconf}" -eq 0 ]]; then
+        \cp "${BINARY_TOOLS_DIR}/arcconf/arcconf-$(arch)" /bin/arcconf
+        chmod +x /bin/arcconf
+        LOGSUCCESS "Installed /bin/arcconf"
+    fi
+}
+
+source "${BINARY_TOOLS_DIR}/../func"
+
+machine_type="${1:-vm}"
+_install
+_install_raid_cli "${machine_type}"

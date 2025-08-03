@@ -1,0 +1,4 @@
+---
+supported_os_release:
+  - "RedHat_7"
+  - "FOS_22"
