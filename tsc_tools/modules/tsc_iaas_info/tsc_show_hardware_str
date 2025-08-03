@@ -1,0 +1,167 @@
+#!/bin/bash
+set +o posix
+
+# 需过滤的非法序列号
+invalid_sns=('1234567890' '01234567890' '0000000000' 'To be filled by O.E.M.')
+
+script_name=$(basename "$0" 2>/dev/null)
+LOGDIR=/var/log/tsc
+mkdir -p "${LOGDIR}"
+LOGFILE="${LOGDIR}/${script_name}.log"
+export LANG=en_US.UTF-8
+export LC_CTYPE=en_US.UTF-8
+export 'NLS_LANG=american_america.AL32UTF8'
+export SETCOLOR_DEBUG="echo -en \\033[1;37m"
+export SETCOLOR_NORMAL="echo -en \\033[0;39m"
+export SETCOLOR_SUCCESS="echo -en \\033[1;32m"
+export SETCOLOR_ERROR="echo -en \\033[1;31m"
+export SETCOLOR_WARNING="echo -en \\033[1;33m"
+function LOGINFO { # 打印日志: 信息级别, stdout
+    local time msg IFS
+    IFS=$' \t\n'
+    time=$(date "+[%F %T]")
+    msg="${time}\tINFO\t${script_name}\t$*"
+    echo -e "${msg}" | tee -a "${log_file:-/dev/null}"
+    ${SETCOLOR_NORMAL}
+    return 0
+}
+function LOGSUCCESS { # 打印日志: 成功级别, stdout
+    local time msg IFS
+    IFS=$' \t\n'
+    time=$(date "+[%F %T]")
+    msg="${time}\tSUCCESS\t${script_name}\t$*"
+    ${SETCOLOR_SUCCESS}
+    echo -e "${msg}" | tee -a "${log_file:-/dev/null}"
+    ${SETCOLOR_NORMAL}
+    return 0
+}
+function LOGWARNING { # 打印日志: 警告级别, stderr
+    local time msg IFS
+    IFS=$' \t\n'
+    time=$(date "+[%F %T]")
+    msg="${time}\tWARNING\t${script_name}\t$*"
+    ${SETCOLOR_WARNING}
+    {
+        echo -e "${msg}" | tee -a "${log_file:-/dev/null}"
+    } >&2
+    ${SETCOLOR_NORMAL}
+    return 0
+}
+function LOGERROR { # 打印日志: 失败级别, stderr
+    local time msg IFS
+    IFS=$' \t\n'
+    time=$(date "+[%F %T]")
+    msg="${time}\tERROR\t${script_name}\t$*"
+    ${SETCOLOR_ERROR}
+    {
+        echo -e "${msg}" | tee -a "${log_file:-/dev/null}"
+    } >&2
+    ${SETCOLOR_NORMAL}
+    return 0
+}
+function help {
+    ${SETCOLOR_WARNING}
+    echo "usage: ${script_name} -y \"ywcenter_ip\" -a \"area_code\" -p \"project_code\" -s \"sn\""
+    echo "ywcenter_ip: 必选: 运维管理中心IP
+area_code: 必选: 行政区划代码
+project_code: 可选: 运维项目编号
+sn: 可选: 机器在标签系统中序列号" | column -t
+    ${SETCOLOR_NORMAL}
+}
+[[ -z $* ]] && help && exit 100
+while getopts "y:a:p:s:h" opt; do
+    case "${opt}" in
+    y)
+        url="https://${OPTARG}:60443/api/assettaglocal/querytag/"
+        ;;
+    a)
+        area_code="$(echo "${OPTARG}" | jq -Rrca .)"
+        ;;
+    p)
+        project_code=$(echo "${OPTARG}" | jq -Rrca .)
+        ;;
+    s)
+        sn=$(echo "${OPTARG}" | jq -Rrca .)
+        ;;
+    h)
+        help
+        exit 0
+        ;;
+    *)
+        help
+        exit 100
+        ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+if [[ -z "${url}" ]] || [[ -z "${area_code}" ]]; then
+    help
+    exit 100
+fi
+# url="https://$1:60443/api/assettaglocal/querytag/"
+# area_code="$(echo "$2" | jq -Rrca .)"
+# project_code=$(echo "$3" | jq -Rrca .)
+server_company="$(dmidecode -s system-manufacturer | jq -Rrca .)"
+server_model="$(dmidecode -s system-product-name | jq -Rrca .)"
+hostname="$(hostname | jq -Rrca .)"
+timestamp="$(date +%s)"
+
+if [[ -z "${sn}" ]]; then
+    if [[ -f "${LOGFILE}" ]]; then
+        sn="$(jq -rca '.sn' "${LOGFILE}" 2>/dev/null)"
+        if [[ -z "${sn}" ]]; then
+            sn="$(dmidecode -s baseboard-serial-number | grep -v '#' | jq -Rrca .)"
+            for invalid_sn in "${invalid_sns[@]}"; do
+                if [ "${invalid_sn}" == "${sn}" ]; then
+                    sn=$(dmidecode -s system-serial-number | jq -Rrca . 2>/dev/null)
+                    break
+                fi
+            done
+            for invalid_sn in "${invalid_sns[@]}"; do
+                if [ "${invalid_sn}" == "${sn}" ]; then
+                    sn=None
+                    break
+                fi
+            done
+            # sn="$(dmidecode -s system-serial-number | jq -Rrca .)"
+        fi
+        echo "${sn}"
+    fi
+fi
+
+data="$(printf '{"area_code":"%s","project_code":"%s","host_ip":"","hostname":"%s","server_company":"%s","server_model":"%s","sn":"%s","timestamp":"%s"}' "${area_code}" "${project_code}" "${hostname}" "${server_company}" "${server_model}" "${sn}" "${timestamp}")"
+
+echo "${data}" | jq -rc . | tee "${LOGFILE}"
+
+if response="$(
+    curl -k -s --retry 3 -X POST \
+        -H "Content-Type: application/json" -d "${data}" "${url}" |
+        jq -rc .
+)"; then
+    response_code="$(echo "${response}" | jq -rc .code)"
+    response_data="$(echo "${response}" | jq -rc .data)"
+    response_msg="$(echo "${response}" | jq -rc .msg)"
+    case "${response_code}" in
+    200)
+        LOGSUCCESS 标签管理系统中可查询到该设备, 可扫码查询该设备详细信息
+        echo "${response_data}" | qrencode -t UTF8
+        ;;
+    404)
+        LOGWARNING "${response_msg}"
+        $SETCOLOR_DEBUG
+        echo "机器内部序列号: ${sn}
+请在外网标签管理系统中填报此设备后等待下次运维管理中心更新同步标签系统数据
+若该设备机器内部序列号与标签系统中序列号不符
+可使用如下命令在本机记录标签系统中序列号(${LOGFILE})
+${script_name} -y \"ywcenter_ip\" -a \"area_code\" -p \"project_code\" -s \"sn\""
+        $SETCOLOR_NORMAL
+        ;;
+    *)
+        LOGERROR 接口响应非法
+        LOGINFO "${response}"
+        ;;
+    esac
+else
+    LOGERROR "运维管理中心接口访问失败: ${url}"
+fi

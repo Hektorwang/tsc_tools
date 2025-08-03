@@ -1,0 +1,7 @@
+*.py[cdo]
+__pycache__
+/.vscode
+/release
+/tmp
+storcli.log
+!.gitignore

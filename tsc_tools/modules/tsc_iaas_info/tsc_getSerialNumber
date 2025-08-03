@@ -1,0 +1,36 @@
+#!/bin/bash
+#有SN输出SN,优先从/var/log/tsc/目录读取,没有读取到在用dmicode读取,都没有输出 None
+set -o posix
+
+sn_file="/var/log/tsc/tsc_show_hardware_str.log"
+
+# 需过滤的非法序列号
+invalid_sns=('1234567890' '01234567890' '0000000000' 'To be filled by O.E.M.')
+
+if [[ -f "${sn_file}" ]]; then
+    sn=$(jq -rc .sn "${sn_file}" 2>/dev/null)
+fi
+if [[ -z "${sn}" ]]; then
+    sn=$(dmidecode -s baseboard-serial-number | grep -v '#' | jq -Rrca . 2>/dev/null)
+    for invalid_sn in "${invalid_sns[@]}"; do
+        if [[ "${sn}" == "${invalid_sn}" ]]; then
+            sn=$(dmidecode -s system-serial-number | jq -Rrca . 2>/dev/null)
+            break
+        fi
+    done
+    for invalid_sn in "${invalid_sns[@]}"; do
+        if [[ "${sn}" == "${invalid_sn}" ]]; then
+            sn=None
+            break
+        fi
+    done
+    # sn=$(dmidecode -s system-serial-number | jq -Rrca . 2>/dev/null)
+fi
+if [[ -z "${sn}" ]]; then
+    sn=None
+fi
+echo "${sn}"
+
+# 旧版
+# [ -f /opt/tsc/lib/lib_tsc ] && . /opt/tsc/lib/lib_tsc || exit 1;
+# get_SerialNumber
