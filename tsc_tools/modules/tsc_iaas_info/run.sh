@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1090,SC1091,SC2034,SC2046,SC2086,SC2116,SC2154
-set -o errexit    # Exit immediately if a command exits with a non-zero status (same as set -e)
-set -o nounset    # Treat unset variables and parameters as an error (same as set -u)
-set -o pipefail   # If any command in a pipeline fails, the pipeline returns an error code
-set +o posix      # Disable POSIX mode to allow Bash-specific features
-shopt -s nullglob # When no files match a glob pattern, expand to nothing instead of the pattern itself
+set -o errexit
+set -o nounset
+set -o pipefail
+set +o posix
+shopt -s nullglob
 
 WORK_DIR="$(dirname "$(readlink -f "$0")")" && cd "${WORK_DIR}" || exit 99
 script_name="$(basename "$0" 2>/dev/null)"
@@ -93,8 +93,17 @@ get_disk_info() {
         # Adaptec
         # LSI|AVAGO|DELL|MegaRAID
         if lspci | grep -qiP "Adaptec"; then
+            if [[ -f /bin/arcconf ]]; then
+                arcconf_bin="/bin/arcconf"
+            fi
+            if [[ -f /sbin/arcconf ]]; then
+                arcconf_bin="/sbin/arcconf"
+            fi
+            if [[ -f "${WORK_DIR}/../packages/arcconf/arcconf-$(arch)" ]]; then
+                arcconf_bin="${WORK_DIR}/../packages/arcconf/arcconf-$(arch)"
+            fi
             mapfile -t raid_detail < <(
-                /home/tsc/tsc_tools/bin/arcconf-"$(arch)" GETCONFIG 1 PD |
+                "${arcconf_bin}" GETCONFIG 1 PD |
                     awk -F ':' '
                         BEGIN { i=0 }
                         /^\s*Device #/{ i+=1 }
@@ -123,13 +132,23 @@ get_disk_info() {
             disk_detail+=("${raid_detail[@]}")
         elif lspci |
             grep -qiP "LSI|AVAGO|MegaRAID|(RAID bus controller: Intel Corporation Lewisburg)"; then
+            local storcli_bin
+            if [[ -f /bin/storcli ]]; then
+                storcli_bin="/bin/storcli"
+            fi
+            if [[ -f /opt/MegaRAID/storcli/storcli64 ]]; then
+                storcli_bin="/opt/MegaRAID/storcli/storcli64"
+            fi
+            if [[ -f "${WORK_DIR}/../packages/storcli64/storcli64-noarch" ]]; then
+                storcli_bin="${WORK_DIR}/../packages/storcli64/storcli64-noarch"
+            fi
             ctl_no=$(
-                /home/tsc/tsc_tools/bin/storcli-"$(arch)" show |
+                "${storcli_bin}" show |
                     grep -PA2 "Ctl\s+Model" |
                     tail -n1 | awk '{print $1}'
             )
             mapfile -t raid_detail < <(
-                /home/tsc/tsc_tools/bin/storcli-"$(arch)" /c"${ctl_no}" show |
+                "${storcli_bin}" /c"${ctl_no}" show |
                     sed -nr '/^PD LIST :/,/EID=Enclosure Device ID/p' |
                     awk '
                         /^(([0-9]+)?|\s*?):[0-9]/{
