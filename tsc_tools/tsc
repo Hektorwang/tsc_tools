@@ -82,7 +82,7 @@ function run_module_with_args() {
     local script_path="${module_dir}/run.sh"
 
     if [[ -x "${script_path}" ]]; then
-        LOGINFO "Running module: ${module_name}"
+        # LOGINFO "Running module: ${module_name}"
         "${script_path}" "${args[@]}"
     else
         LOGERROR "Module script not found or not executable: ${script_path}"

@@ -66,7 +66,7 @@ pipeline {
             steps {
                 sh '''
                 pwd;ls -l
-                dnf install --assumeyes --quiet findutils bash
+                dnf install --assumeyes findutils bash
                 sh -x build.sh
                 '''
             }
