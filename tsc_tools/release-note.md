@@ -1,5 +1,9 @@
 # release-note
 
+## Version=2.0.2.beta
+
+1. feat: 给 `tsc_iaas_info` 增加 `runtime` 选项, 收集系统运行时资源状态, 参考 `zabbix` 上原生的多个监控项内容;
+
 ## Version=2.0.1.dev
 
 X4068
@@ -7,8 +11,7 @@ X4068
 1. fix: 修改了两个 raid 卡工具的安装方式和调用方式, 优先调用系统已安装好的工具;
 2. fix: 修复了 `tsc_sysinit` 的几个问题;
 3. feat: 依赖 python 的工具已经全部剥离;
-4. TODO: 给 `tsc_iaas_info` 增加 `runtime` 选项, 收集系统运行时资源状态, 参考 zabbix 上原生的多个监控项内容;
-5. TODO: 增加一年有效期功能;
+4. TODO: 给 `tsc_iaas_info` 增加 `runtime` 选项, 收集系统运行时资源状态, 参考 `zabbix` 上原生的多个监控项内容;
 
 ## Version=2.0.0.dev
 

@@ -228,6 +228,241 @@ get_disk_info() {
         printf '%s\n' "${disk_detail[@]}" | jq -s '{storage: .}'
 }
 
+test_writability() {
+    local mount_point="$1"
+    local temp_file
+    local TEMP_FILE_PREFIX="test_rw_"
+    temp_file=$(mktemp "${mount_point}/${TEMP_FILE_PREFIX}XXXXX")
+
+    if [[ -f "$temp_file" ]]; then
+        unlink "$temp_file" &>/dev/null
+        return 0
+    else
+        return 1
+    fi
+}
+
+get_storage_runtime_info() {
+    local json_array="[]"
+    local mount_info
+    local -a FILESYSTEMS=(ext2 ext3 ext4 btrfs xfs vfat ntfs jfs reiserfs zfs)
+    local FS_TYPES
+    FS_TYPES="$(
+        IFS=,
+        echo "${FILESYSTEMS[*]}"
+    )"
+
+    mapfile -t mount_info < <(
+        findmnt -n -o TARGET,SOURCE,FSTYPE,OPTIONS -l -t "${FS_TYPES}"
+    )
+
+    for line in "${mount_info[@]}"; do
+        local mount_point fstype options source_device
+        mount_point="$(echo "$line" | awk '{print $1}')"
+        source_device="$(echo "$line" | awk '{print $2}')"
+        fstype="$(echo "$line" | awk '{print $3}')"
+        options="$(echo "$line" | awk '{print $4}')"
+
+        local df_size_output
+        df_size_output="$(df -B1 --portability "${mount_point}" 2>/dev/null || echo "0 0")"
+        local size_total_bytes size_used_bytes
+        size_total_bytes="$(echo "${df_size_output}" | tail -n 1 | awk '{print $2}')"
+        size_used_bytes="$(echo "${df_size_output}" | tail -n 1 | awk '{print $3}')"
+
+        local df_inode_output
+        df_inode_output="$(df -i --portability "${mount_point}" 2>/dev/null || echo "0 0")"
+        local inode_total inode_used
+        inode_total="$(echo "${df_inode_output}" | tail -n 1 | awk '{print $2}')"
+        inode_used="$(echo "${df_inode_output}" | tail -n 1 | awk '{print $3}')"
+
+        local size_total_gb=0
+        local size_used_gb=0
+        if [[ "$size_total_bytes" -gt 0 ]]; then
+            size_total_gb="$(awk "BEGIN {printf \"%.2f\", $size_total_bytes / (1024^3)}")"
+        fi
+        if [[ "$size_used_bytes" -gt 0 ]]; then
+            size_used_gb="$(awk "BEGIN {printf \"%.2f\", $size_used_bytes / (1024^3)}")"
+        fi
+
+        local size_used_percent=0
+        if [[ "$size_total_bytes" -gt 0 ]]; then
+            size_used_percent="$(awk "BEGIN {printf \"%.2f\", ($size_used_bytes / $size_total_bytes) * 100}")"
+        fi
+
+        local inode_used_percent=0
+        if [[ "$inode_total" -gt 0 ]]; then
+            inode_used_percent="$(awk "BEGIN {printf \"%.2f\", ($inode_used / $inode_total) * 100}")"
+        fi
+
+        local writable=false
+        if [[ "$options" =~ rw ]]; then
+            if test_writability "${mount_point}"; then
+                writable=true
+            fi
+        fi
+
+        json_array="$(echo "${json_array}" | jq \
+            --arg target "${mount_point}" \
+            --arg source "${source_device}" \
+            --arg fs "${fstype}" \
+            --argjson size_total "$size_total_gb" \
+            --argjson size_used "$size_used_gb" \
+            --argjson inode_total "$inode_total" \
+            --argjson inode_used "$inode_used" \
+            --argjson size_used_percent "$size_used_percent" \
+            --argjson inode_used_percent "$inode_used_percent" \
+            --argjson rw "${writable}" \
+            '. + [{
+                target: $target,
+                source: $source,
+                filesystem: $fs,
+                size: {
+                    total: $size_total,
+                    used: $size_used,
+                    used_percent: $size_used_percent,
+                    unit: "G"
+                },
+                inodes: {
+                    total: $inode_total,
+                    used: $inode_used,
+                    used_percent: $inode_used_percent
+                },
+                writable: $rw
+            }]')"
+    done
+    echo "$json_array"
+}
+
+get_memory_runtime_info() {
+    local mem_line swap_line
+    mem_line="$(free -b | awk 'NR==2{print $2, $3}')"
+    swap_line="$(free -b | awk 'NR==3{print $2, $3}')"
+    read -r mem_total_bytes mem_used_bytes <<<"$mem_line"
+    read -r swap_total_bytes swap_used_bytes <<<"$swap_line"
+
+    local mem_total_g mem_used_g swap_total_g swap_used_g
+    mem_total_g="$(awk -v m="${mem_total_bytes}" 'BEGIN {printf "%.2f", m / (1024^3)}')"
+    mem_used_g="$(awk -v m="${mem_used_bytes}" 'BEGIN {printf "%.2f", m / (1024^3)}')"
+    swap_total_g="$(awk -v m="${swap_total_bytes}" 'BEGIN {printf "%.2f", m / (1024^3)}')"
+    swap_used_g="$(awk -v m="${swap_used_bytes}" 'BEGIN {printf "%.2f", m / (1024^3)}')"
+
+    # 新增行: 计算 RAM 使用率
+    local mem_used_percent=0
+    if ((mem_total_bytes > 0)); then
+        mem_used_percent="$(awk "BEGIN {printf \"%.2f\", ($mem_used_bytes / $mem_total_bytes) * 100}")"
+    fi
+
+    # 新增行: 计算 Swap 使用率
+    local swap_used_percent=0
+    if ((swap_total_bytes > 0)); then
+        swap_used_percent="$(awk "BEGIN {printf \"%.2f\", ($swap_used_bytes / $swap_total_bytes) * 100}")"
+    fi
+
+    # 修改行: jq命令更新，添加了used_percent字段
+    jq -n \
+        --argjson mem_total "${mem_total_g}" \
+        --argjson mem_used "${mem_used_g}" \
+        --argjson mem_used_percent "${mem_used_percent}" \
+        --argjson swap_total "${swap_total_g}" \
+        --argjson swap_used "${swap_used_g}" \
+        --argjson swap_used_percent "${swap_used_percent}" \
+        '{
+            ram: {
+                total: $mem_total,
+                used: $mem_used,
+                used_percent: $mem_used_percent,
+                unit: "G"
+            },
+            swap: {
+                total: $swap_total,
+                used: $swap_used,
+                used_percent: $swap_used_percent,
+                unit: "G"
+            }
+        }'
+}
+
+get_cpu_runtime_info() {
+    local first_sample second_sample
+    local user nice system idle iowait irq softirq steal guest guest_nice
+    local total_jiffies idle_jiffies iowait_jiffies
+
+    read -r _ user nice system idle iowait irq softirq steal guest guest_nice </proc/stat
+    first_sample=(
+        "${user}"
+        "${nice}"
+        "${system}"
+        "${idle}"
+        "${iowait}"
+        "${irq}"
+        "${softirq}"
+        "${steal}"
+        "${guest}"
+        "${guest_nice}"
+    )
+    sleep 1
+    read -r _ user nice system idle iowait irq softirq steal guest guest_nice </proc/stat
+    second_sample=(
+        "${user}"
+        "${nice}"
+        "${system}"
+        "${idle}"
+        "${iowait}"
+        "${irq}"
+        "${softirq}"
+        "${steal}"
+        "${guest}"
+        "${guest_nice}"
+    )
+
+    local total_jiffies="$((second_sample[0] - first_sample[0] + \
+        second_sample[1] - first_sample[1] + \
+        second_sample[2] - first_sample[2] + \
+        second_sample[3] - first_sample[3] + \
+        second_sample[4] - first_sample[4] + \
+        second_sample[5] - first_sample[5] + \
+        second_sample[6] - first_sample[6] + \
+        second_sample[7] - first_sample[7] + \
+        second_sample[8] - first_sample[8] + \
+        second_sample[9] - first_sample[9]))"
+    local idle_jiffies="$((second_sample[3] - first_sample[3]))"
+    local iowait_jiffies="$((second_sample[4] - first_sample[4]))"
+
+    local cpu_used_percentage=0
+    local iowait_percentage=0
+
+    if [[ "$total_jiffies" -gt 0 ]]; then
+        cpu_used_percentage="$(awk "BEGIN {printf \"%.2f\", (100.0 - ($idle_jiffies / $total_jiffies) * 100)}")"
+        iowait_percentage="$(awk "BEGIN {printf \"%.2f\", ($iowait_jiffies / $total_jiffies) * 100}")"
+    fi
+
+    jq -n --argjson cpu_used "${cpu_used_percentage}" \
+        --argjson iowait "${iowait_percentage}" \
+        '{
+            used_percent: $cpu_used,
+            iowait_percent: $iowait
+        }'
+}
+
+runtime() {
+    local storage_json memory_json cpu_json
+    storage_json="$(get_storage_runtime_info)"
+    memory_json="$(get_memory_runtime_info)"
+    cpu_json="$(get_cpu_runtime_info)"
+
+    if [[ -z "$storage_json" ]]; then
+        storage_json="[]"
+    fi
+    jq -n --argjson storage_data "${storage_json}" \
+        --argjson memory_data "${memory_json}" \
+        --argjson cpu_data "$cpu_json" \
+        '{
+            storage: $storage_data, 
+            memory: $memory_data,
+             cpu: $cpu_data
+        }'
+}
+
 main() {
     local system_info manufacturer sn cpu_info mem_info disk_info machine_type
     system_info="$(detect_system_info)"
@@ -237,7 +472,6 @@ main() {
     cpu_info="$(get_cpu_info)"
     mem_info="$(get_mem_info)"
     disk_info="$(get_disk_info "${machine_type}")"
-    # echo "$disk_info"
     echo "${system_info}" |
         jq --argjson sn "${sn}" '. + $sn' |
         jq --arg manufacturer "${manufacturer}" '. + {manufacturer: $manufacturer}' |
@@ -253,11 +487,12 @@ Usage: $0 [OPTIONS]
 Options:
   --contract_no <contract_no>   Specify contract number (optional, requires parameter)
   --location <location>         Specify location (optional, requires parameter)
-  --help                       Show this help message and exit
+  --runtime                     Gathter runtime information
+  --help                        Show this help message and exit
 EOF
 }
 
-OPTIONS=$(getopt --options="" --longoptions=contract_no:,location:,help --name "$0" -- "$@") || {
+OPTIONS=$(getopt --options="" --longoptions=contract_no:,location:,help,runtime, --name "$0" -- "$@") || {
     usage
     exit 1
 }
@@ -268,6 +503,10 @@ location=""
 
 while true; do
     case "$1" in
+    --runtime)
+        runtime
+        exit "$?"
+        ;;
     --contract_no)
         contract_no="$2"
         shift 2
