@@ -346,19 +346,16 @@ get_memory_runtime_info() {
     swap_total_g="$(awk -v m="${swap_total_bytes}" 'BEGIN {printf "%.2f", m / (1024^3)}')"
     swap_used_g="$(awk -v m="${swap_used_bytes}" 'BEGIN {printf "%.2f", m / (1024^3)}')"
 
-    # 新增行: 计算 RAM 使用率
     local mem_used_percent=0
     if ((mem_total_bytes > 0)); then
         mem_used_percent="$(awk "BEGIN {printf \"%.2f\", ($mem_used_bytes / $mem_total_bytes) * 100}")"
     fi
 
-    # 新增行: 计算 Swap 使用率
     local swap_used_percent=0
     if ((swap_total_bytes > 0)); then
         swap_used_percent="$(awk "BEGIN {printf \"%.2f\", ($swap_used_bytes / $swap_total_bytes) * 100}")"
     fi
 
-    # 修改行: jq命令更新，添加了used_percent字段
     jq -n \
         --argjson mem_total "${mem_total_g}" \
         --argjson mem_used "${mem_used_g}" \
@@ -449,17 +446,87 @@ runtime() {
     storage_json="$(get_storage_runtime_info)"
     memory_json="$(get_memory_runtime_info)"
     cpu_json="$(get_cpu_runtime_info)"
-
     if [[ -z "$storage_json" ]]; then
         storage_json="[]"
     fi
+
+    local warnings='{}' cpu_used_percent memory_used_percent storage_warnings_list mount_points storage_unwritable_list unwritable_mount_points inode_mount_points
+
+    cpu_used_percent="$(echo "$cpu_json" | jq -r '.used_percent')"
+    memory_used_percent="$(echo "$memory_json" | jq -r '.ram.used_percent')"
+
+    if awk -v t="${cpu_threshold}" "BEGIN {exit !($cpu_used_percent > t)}"; then
+        warnings="$(
+            echo "$warnings" |
+                jq --arg threshold "${cpu_threshold}" \
+                    '."cpu_usage" = "CPU usage is above threshold: \($threshold)%."'
+        )"
+    fi
+
+    if awk -v t="${memory_threshold}" "BEGIN {exit !($memory_used_percent > t)}"; then
+        warnings="$(
+            echo "$warnings" |
+                jq --arg threshold "${memory_threshold}" \
+                    '."memory_usage" = "Memory usage is above threshold: \($threshold)%."'
+        )"
+    fi
+
+    storage_warnings_list="$(
+        echo "${storage_json}" |
+            jq --argjson threshold "${storage_threshold}" \
+                '[.[] | select(.size.used_percent > $threshold) | .target]'
+    )"
+
+    local inode_warnings_list
+    inode_warnings_list="$(
+        echo "${storage_json}" |
+            jq --argjson threshold "${storage_threshold}" \
+                '[.[] | select(.inodes.used_percent > $threshold) | .target]'
+    )"
+
+    if [[ "${storage_warnings_list}" != "[]" ]]; then
+        mount_points="$(echo "$storage_warnings_list" | jq -r 'join(", ")')"
+        warnings="$(
+            echo "${warnings}" |
+                jq --arg mount_points "$mount_points" \
+                    --arg threshold "${storage_threshold}" \
+                    '."storage_usage" = "Storage size usage for \($mount_points) is above threshold: \($threshold)%."'
+        )"
+    fi
+
+    if [[ "${inode_warnings_list}" != "[]" ]]; then
+        inode_mount_points="$(echo "$inode_warnings_list" | jq -r 'join(", ")')"
+        warnings="$(
+            echo "${warnings}" |
+                jq --arg inode_mount_points "$inode_mount_points" \
+                    --arg threshold "${storage_threshold}" \
+                    '."inode_usage" = "Inode usage for \($inode_mount_points) is above threshold: \($threshold)%."'
+        )"
+    fi
+
+    storage_unwritable_list="$(
+        echo "${storage_json}" |
+            jq '[.[] | select(.writable == false) | .target]'
+    )"
+
+    if [[ "${storage_unwritable_list}" != "[]" ]]; then
+        unwritable_mount_points="$(echo "$storage_unwritable_list" | jq -r 'join(", ")')"
+        warnings="$(
+            echo "${warnings}" |
+                jq --arg unwritable_mount_points "$unwritable_mount_points" \
+                    '."storage_unwritable" = "The following mount points are not writable: \($unwritable_mount_points)."'
+        )"
+    fi
+
     jq -n --argjson storage_data "${storage_json}" \
         --argjson memory_data "${memory_json}" \
         --argjson cpu_data "$cpu_json" \
+        --argjson warnings_data "$warnings" \
         '{
-            storage: $storage_data, 
+            storage: $storage_data,
             memory: $memory_data,
-             cpu: $cpu_data
+            cpu: $cpu_data,
+            warning: $warnings_data
         }'
 }
 
@@ -485,14 +552,23 @@ usage() {
 Usage: $0 [OPTIONS]
 
 Options:
-  --contract_no <contract_no>   Specify contract number (optional, requires parameter)
-  --location <location>         Specify location (optional, requires parameter)
-  --runtime                     Gathter runtime information
+  --contract_no <contract_no>   Specify the contract number (optional, requires a parameter)
+  --location <location>         Specify the location (optional, requires a parameter)
+  --runtime                     Gather runtime information (optional, no parameter)
+  --cpu_threshold <value>       Set CPU usage threshold (used with --runtime, requires a parameter, default: 90)
+  --storage_threshold <value>   Set storage usage threshold (used with --runtime, requires a parameter, default: 90)
+  --memory_threshold <value>    Set memory usage threshold (used with --runtime, requires a parameter, default: 90)
   --help                        Show this help message and exit
 EOF
 }
 
-OPTIONS=$(getopt --options="" --longoptions=contract_no:,location:,help,runtime, --name "$0" -- "$@") || {
+OPTIONS=$(
+    getopt \
+        --options="" \
+        --longoptions=contract_no:,location:,help,runtime,cpu_threshold:,storage_threshold:,memory_threshold: \
+        --name "$0" \
+        -- "$@"
+) || {
     usage
     exit 1
 }
@@ -504,8 +580,23 @@ location=""
 while true; do
     case "$1" in
     --runtime)
-        runtime
-        exit "$?"
+        runtime_flag=true
+        cpu_threshold="${cpu_threshold:-90}"
+        memory_threshold="${memory_threshold:-90}"
+        storage_threshold="${storage_threshold:-90}"
+        shift
+        ;;
+    --cpu_threshold)
+        cpu_threshold="$2"
+        shift 2
+        ;;
+    --storage_threshold)
+        storage_threshold="$2"
+        shift 2
+        ;;
+    --memory_threshold)
+        memory_threshold="$2"
+        shift 2
         ;;
     --contract_no)
         contract_no="$2"
@@ -530,6 +621,12 @@ while true; do
         ;;
     esac
 done
+
+if ${runtime_flag:-false}; then
+    runtime
+    exit $?
+fi
+
 mkdir -p /var/log/tsc/
 original_logfile="/var/log/tsc/tsc_iaas_info.json"
 

@@ -107,13 +107,13 @@
 # 激活工具环境
 source /home/tsc/tsc_profile
 # 查看具体参数
-tsc --sysinit --help
+tsc --tsc_sysinit --help
 # 完全配置所有功能, 包括设置对时和修改 sshd 端口
-tsc --sysinit --all --ntp_server=time.windows.com --sshd_port=12345
+tsc --tsc_sysinit --all --ntp_server=time.windows.com --sshd_port=12345
 # 仅使用部分功能
-tsc --sysinit --config_services --disable_firewall
+tsc --tsc_sysinit --config_services --disable_firewall
 # 在所有功能上排除部分功能(disable_firewall)
-tsc --sysinit --all --ntp_server=time.windows.com --sshd_port=12345 --no-disable_firewall
+tsc --tsc_sysinit --all --ntp_server=time.windows.com --sshd_port=12345 --no-disable_firewall
 ```
 
 ## 参数列表
