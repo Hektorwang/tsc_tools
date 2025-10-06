@@ -8,6 +8,7 @@ shopt -s nullglob
 
 WORK_DIR="$(dirname "$(readlink -f "$0")")" && cd "${WORK_DIR}" || exit 99
 script_name="$(basename "$0" 2>/dev/null)"
+declare -A RAID_INFO
 
 if ! "${TSC_FUNC:-false}"; then
     source ${WORK_DIR}/../../func
@@ -79,6 +80,59 @@ get_serial_number() {
     jq -n --arg sn "${sn}" '{sn: $sn}'
 }
 
+get_raid_type() {
+    RAID_INFO[type]="none"
+    RAID_INFO[bin]=""
+    if lspci | grep -qiP "Adaptec"; then
+        RAID_INFO[type]="adaptec"
+        if [[ -f /bin/arcconf ]]; then
+            RAID_INFO[bin]="/bin/arcconf"
+        elif [[ -f /sbin/arcconf ]]; then
+            RAID_INFO[bin]="/sbin/arcconf"
+        elif [[ -f "${WORK_DIR}/../packages/arcconf/arcconf-$(arch)" ]]; then
+            RAID_INFO[bin]="${WORK_DIR}/../packages/arcconf/arcconf-$(arch)"
+        else
+            RAID_INFO[bin]="$(command -v arcconf 2>/dev/null || echo false)"
+        fi
+    elif lsmod | grep -qE "^mpt3sas" || lspci | grep -q "SAS3008"; then
+        RAID_INFO[type]="mpt3sas"
+        if [[ -f /bin/sas3ircu ]]; then
+            RAID_INFO[bin]="/bin/sas3ircu"
+        elif [[ -f /sbin/sas3ircu ]]; then
+            RAID_INFO[bin]="/sbin/sas3ircu"
+        elif [[ -f "${WORK_DIR}/../packages/sas3ircu/sas3ircu-$(arch)" ]]; then
+            RAID_INFO[bin]="${WORK_DIR}/../packages/sas3ircu/sas3ircu-$(arch)"
+        else
+            RAID_INFO[bin]="$(command -v sas3ircu 2>/dev/null || echo false)"
+        fi
+    elif lsmod | grep -qE "^mpt2sas" || lspci | grep -q "LSI2308"; then
+        RAID_INFO[type]="mpt2sas"
+        if [[ -f /bin/sas2ircu ]]; then
+            RAID_INFO[bin]="/bin/sas2ircu"
+        elif [[ -f /sbin/sas2ircu ]]; then
+            RAID_INFO[bin]="/sbin/sas2ircu"
+        elif [[ -f "${WORK_DIR}/../packages/sas2ircu/sas2ircu-$(arch)" ]]; then
+            RAID_INFO[bin]="${WORK_DIR}/../packages/sas2ircu/sas2ircu-$(arch)"
+        else
+            RAID_INFO[bin]="$(command -v sas2ircu 2>/dev/null || echo false)"
+        fi
+    elif lspci |
+        grep -qiP "LSI|AVAGO|MegaRAID|(RAID bus controller: Intel Corporation Lewisburg)"; then
+        RAID_INFO[type]="lsi"
+        if [[ -f /bin/storcli ]]; then
+            RAID_INFO[bin]="/bin/storcli"
+        elif [[ -f /opt/MegaRAID/storcli/storcli64 ]]; then
+            RAID_INFO[bin]="/opt/MegaRAID/storcli/storcli64"
+        elif [[ -f "${WORK_DIR}/../packages/storcli64/storcli64-noarch" ]]; then
+            RAID_INFO[bin]="${WORK_DIR}/../packages/storcli64/storcli64-noarch"
+        elif command -v storcli64 &>/dev/null; then
+            RAID_INFO[bin]="$(command -v storcli64 2>/dev/null)"
+        else
+            RAID_INFO[bin]="$(command -v storcli 2>/dev/null || echo false)"
+        fi
+    fi
+}
+
 get_disk_info() {
     local machine_type="$1"
     local line ctl_no
@@ -89,21 +143,11 @@ get_disk_info() {
     da_disks=()
     disk_detail=()
     if [[ "${machine_type}" == "pm" ]]; then
-        # 判断 RAID 卡类型
-        # Adaptec
-        # LSI|AVAGO|DELL|MegaRAID
-        if lspci | grep -qiP "Adaptec"; then
-            if [[ -f /bin/arcconf ]]; then
-                arcconf_bin="/bin/arcconf"
-            fi
-            if [[ -f /sbin/arcconf ]]; then
-                arcconf_bin="/sbin/arcconf"
-            fi
-            if [[ -f "${WORK_DIR}/../packages/arcconf/arcconf-$(arch)" ]]; then
-                arcconf_bin="${WORK_DIR}/../packages/arcconf/arcconf-$(arch)"
-            fi
+        get_raid_type
+        if [[ "${RAID_INFO[type]}" == "adaptec" && -n "${RAID_INFO[bin]}" ]]; then
+            # Adaptec
             mapfile -t raid_detail < <(
-                "${arcconf_bin}" GETCONFIG 1 PD |
+                "${RAID_INFO[bin]}" GETCONFIG 1 PD |
                     awk -F ':' '
                         BEGIN { i=0 }
                         /^\s*Device #/{ i+=1 }
@@ -122,7 +166,7 @@ get_disk_info() {
                         END {
                             for (a in r) {
                                 if (r[a]["flag"]==1) {
-                                printf "{\"type\":\"raid\",\"model\":\"%s\",\"serial\":\"%s\",\"wwn\":\"%s\",\"size\":%.2f},\"unit\":\"T\"\n", \
+                                printf "{\"type\":\"raid\",\"model\":\"%s\",\"serial\":\"%s\",\"wwn\":\"%s\",\"size":%.2f},\"unit\":\"T\"\n", \
                                     r[a]["model"], r[a]["serial"],r[a]["wwn"],r[a]["size"]
                                 }
                             }
@@ -130,25 +174,15 @@ get_disk_info() {
                     '
             )
             disk_detail+=("${raid_detail[@]}")
-        elif lspci |
-            grep -qiP "LSI|AVAGO|MegaRAID|(RAID bus controller: Intel Corporation Lewisburg)"; then
-            local storcli_bin
-            if [[ -f /bin/storcli ]]; then
-                storcli_bin="/bin/storcli"
-            fi
-            if [[ -f /opt/MegaRAID/storcli/storcli64 ]]; then
-                storcli_bin="/opt/MegaRAID/storcli/storcli64"
-            fi
-            if [[ -f "${WORK_DIR}/../packages/storcli64/storcli64-noarch" ]]; then
-                storcli_bin="${WORK_DIR}/../packages/storcli64/storcli64-noarch"
-            fi
+        elif [[ "${RAID_INFO[type]}" == "lsi" && -n "${RAID_INFO[bin]}" ]]; then
+            # LSI|AVAGO|MegaRAID
             ctl_no=$(
-                "${storcli_bin}" show |
+                "${RAID_INFO[bin]}" show |
                     grep -PA2 "Ctl\s+Model" |
                     tail -n1 | awk '{print $1}'
             )
             mapfile -t raid_detail < <(
-                "${storcli_bin}" /c"${ctl_no}" show |
+                "${RAID_INFO[bin]}" /c"${ctl_no}" show |
                     sed -nr '/^PD LIST :/,/EID=Enclosure Device ID/p' |
                     awk '
                         /^(([0-9]+)?|\s*?):[0-9]/{
@@ -442,14 +476,15 @@ get_cpu_runtime_info() {
 }
 
 runtime() {
-    local storage_json memory_json cpu_json
+    local storage_json memory_json cpu_json raid_type
+    system_info="$(detect_system_info)"
+    machine_type="$(echo $system_info | jq -r .machine_type)"
     storage_json="$(get_storage_runtime_info)"
     memory_json="$(get_memory_runtime_info)"
     cpu_json="$(get_cpu_runtime_info)"
     if [[ -z "$storage_json" ]]; then
         storage_json="[]"
     fi
-
     local warnings='{}' cpu_used_percent memory_used_percent storage_warnings_list mount_points storage_unwritable_list unwritable_mount_points inode_mount_points
 
     cpu_used_percent="$(echo "$cpu_json" | jq -r '.used_percent')"
@@ -487,7 +522,7 @@ runtime() {
     if [[ "${storage_warnings_list}" != "[]" ]]; then
         mount_points="$(echo "$storage_warnings_list" | jq -r 'join(", ")')"
         warnings="$(
-            echo "${warnings}" |
+            echo "$warnings" |
                 jq --arg mount_points "$mount_points" \
                     --arg threshold "${storage_threshold}" \
                     '."storage_usage" = "Storage size usage for \($mount_points) is above threshold: \($threshold)%."'
@@ -497,7 +532,7 @@ runtime() {
     if [[ "${inode_warnings_list}" != "[]" ]]; then
         inode_mount_points="$(echo "$inode_warnings_list" | jq -r 'join(", ")')"
         warnings="$(
-            echo "${warnings}" |
+            echo "$warnings" |
                 jq --arg inode_mount_points "$inode_mount_points" \
                     --arg threshold "${storage_threshold}" \
                     '."inode_usage" = "Inode usage for \($inode_mount_points) is above threshold: \($threshold)%."'
@@ -512,22 +547,43 @@ runtime() {
     if [[ "${storage_unwritable_list}" != "[]" ]]; then
         unwritable_mount_points="$(echo "$storage_unwritable_list" | jq -r 'join(", ")')"
         warnings="$(
-            echo "${warnings}" |
+            echo "$warnings" |
                 jq --arg unwritable_mount_points "$unwritable_mount_points" \
                     '."storage_unwritable" = "The following mount points are not writable: \($unwritable_mount_points)."'
         )"
     fi
-
-    jq -n --argjson storage_data "${storage_json}" \
-        --argjson memory_data "${memory_json}" \
-        --argjson cpu_data "$cpu_json" \
-        --argjson warnings_data "$warnings" \
-        '{
-            storage: $storage_data,
-            memory: $memory_data,
-            cpu: $cpu_data,
-            warning: $warnings_data
-        }'
+    if [[ "${machine_type}" == "pm" ]]; then
+        get_raid_type
+        local raid_health_json="{}"
+        if [[ "${RAID_INFO[type]}" != "none" && -n "${RAID_INFO[bin]}" ]]; then
+            raid_health_json="$(
+                bash "${WORK_DIR}/tsc_raid_health_check.sh" \
+                    "${RAID_INFO[type]}" "${RAID_INFO[bin]}" "${original_logfile}"
+            )"
+        fi
+        jq -n --argjson storage_data "${storage_json}" \
+            --argjson memory_data "${memory_json}" \
+            --argjson cpu_data "$cpu_json" \
+            --argjson warnings_data "$warnings" \
+            --argjson raid_health "$raid_health_json" \
+            '{
+                storage: $storage_data,
+                memory: $memory_data,
+                cpu: $cpu_data,
+                warning: ($warnings_data + {raid_status: $raid_health.raid_status} + ( $raid_health.raid_count_mismatch? // {} ) )
+            }'
+    else
+        jq -n --argjson storage_data "${storage_json}" \
+            --argjson memory_data "${memory_json}" \
+            --argjson cpu_data "$cpu_json" \
+            --argjson warnings_data "$warnings" \
+            '{
+                storage: $storage_data,
+                memory: $memory_data,
+                cpu: $cpu_data,
+                warning: $warnings_data
+            }'
+    fi
 }
 
 main() {

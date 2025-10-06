@@ -692,3 +692,34 @@ is_element_in_array() {
     return 1
 }
 export -f is_element_in_array
+
+associate_array_to_json() {
+    declare -n assoc=$1
+    local sep=$'\u0019'
+    for k in "${!assoc[@]}"; do
+        printf '%s%s%s%s' "$k" "$sep" "${assoc[$k]}" "$sep"
+    done |
+        jq -Rrcs --arg sep "$sep" '
+    (split($sep)[:-1]) as $a |
+    [range(0; ($a|length); 2) | { ($a[.]) : $a[. + 1] }] |
+    add
+  '
+}
+export -f associate_array_to_json
+
+array_to_json() {
+    local sep=$'\u0019'
+    declare -n arr=$1
+
+    {
+        for v in "${arr[@]}"; do
+            printf '%s%s' "$v" "$sep"
+        done
+    } |
+        jq -Rrcs --arg sep "$sep" '
+    (split($sep)[:-1]) as $a
+    | $a
+  '
+}
+
+export -f array_to_json
