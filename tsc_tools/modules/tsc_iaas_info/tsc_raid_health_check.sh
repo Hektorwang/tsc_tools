@@ -25,20 +25,20 @@ PD_KEYWORDS=(
     "Rbld|告警(正在重建)"
     "UBad|告警(已坏未使用)"
     "DHS|信息(热备盘)"
-    "Unconfigured(good)|信息(未格式化待用)"
-    "Sntze|信息(清洁状态)"
-    "Onln|信息(在线)"
-    "UGood|信息(未格式化待用)"
     "GHS|信息(全局热备盘)"
+    "Hot Spare|信息(热备盘)"
+    "Hotspare,Spundown|信息(热备盘)"
     "JBOD|信息(正常)"
     "OK|信息(正常)"
-    "Optimal|信息(正常)"
-    "Hotspare,Spundown|信息(热备盘)"
-    "Online|信息(在线)"
     "Online,SpunUp|信息(在线)"
-    "Ready|信息(已格式化待用)"
-    "Hot Spare|信息(热备盘)"
+    "Online|信息(在线)"
+    "Onln|信息(在线)"
+    "Optimal|信息(正常)"
     "Raw|信息(直通盘)"
+    "Ready|信息(未配置Raid)"
+    "Sntze|信息(清洁状态)"
+    "UGood|信息(未格式化待用)"
+    "Unconfigured(good)|信息(未格式化待用)"
 )
 # 最终结果 [{vd_info_obj},{vd_info_obj},{pd_info_obj},{pd_info_obj}]
 raid_status_json="[]"
@@ -186,88 +186,160 @@ check_lsi() {
         done < <(echo "${storcli_out}" | grep -A "$((pd_cnt + 5))" "PD LIST" | tail -n "${pd_cnt}")
     done
 }
-#     #新增sas3ircu依赖内核判断
-#     sas3mod=$(lsmod | grep ^mpt3sas | awk '{print 3}')
-#     if [ ! -n "$sas3mod" ]; then
-#         sas3mod=0
-#     fi
-#     #新增sas2ircu依赖内核判断
-#     sas2mod=$(lsmod | grep ^mpt2sas | awk '{print 3}')
-#     if [ ! -n "$sas2mod" ]; then
-#         sas2mod=0
-#     fi
-#     if [ "$sas3mod" -ge "1" ]; then
-#         command="sas3ircu"
-#     elif [ "$sas2mod" -ge "1" ]; then
-#         command="sas2ircu"
-#     fi
-#     if [ "$sas3mod" -ge "1" ] || [ "$sas2mod" -ge "1" ]; then
-#         array=($(/etc/zabbix/script/$command list | grep SAS | grep -vE "SAS3IRCU|SAS2IRCU|Avago" | awk '{print $1}'))
-#         array_num=${#array[@]}
-#         for ((i = 0; i < $array_num; i++)); do
-#             /etc/zabbix/script/$command $i display | awk '/IR Volume information/,/Physical device information/{print}' | grep -E "IR volume|Status of volume" | sed 'N;s/\n/;/g' | sed 's/ //g' | sed 's/^/Raid卡'${array[i]}'&;/g' >>/tmp/lsi_array_info.txt 2>/dev/null
-#             /etc/zabbix/script/$command $i display | awk '/Physical device information/,/Enclosure information/{print}' | grep -A 13 "Device is a Hard disk" | grep -E "Slot|State" | sed 'N;s/\n/;/g' | sed 's/ //g' | sed 's/^/Raid卡'${array[i]}'&;/g' >>/tmp/lsi_array_info.txt 2>/dev/null
-#         done
-#         #判断VD是否健康
-#         vd=($(cat /tmp/lsi_array_info.txt 2>/dev/null | grep "IRvolume"))
-#         vd_num=${#vd[@]}
-#         for ((i = 0; i < $vd_num; i++)); do
-#             vd_health=$(echo ${vd[i]} | awk -F ":" '{print $NF}')
-#             for ((j = 0; j < $ld_warns_num; j++)); do
-#                 ld_warn_status=$(echo ${ld_warns[j]} | awk -F "|" '{print $1}')
-#                 ld_warn_level=$(echo ${ld_warns[j]} | awk -F "|" '{print $2}')
-#                 shopt -s nocasematch
-#                 if [[ "$vd_health" =~ "$ld_warn_status" ]]; then
-#                     realnum=$(echo ${vd[i]} | awk -F ";" '{print $2}')
-#                     sed -i "/$realnum;/s/^/$ld_warn_level:  /" /tmp/lsi_array_info.txt 2>/dev/null
-#                 fi
-#             done
-#         done
 
-#         #判断PD是否健康
-#         pd=($(cat /tmp/lsi_array_info.txt 2>/dev/null | grep "Slot"))
-#         pd_num=${#pd[@]}
-#         #echo $pd_num
-#         for ((i = 0; i < $pd_num; i++)); do
-#             pd_health=$(echo ${pd[i]} | awk -F ":" '{print $NF}')
-#             for ((j = 0; j < $pd_warns_num; j++)); do
-#                 pd_warn_status=$(echo ${pd_warns[j]} | awk -F "|" '{print $1}')
-#                 pd_warn_level=$(echo ${pd_warns[j]} | awk -F "|" '{print $2}')
-#                 shopt -s nocasematch
-#                 if [[ "$pd_health" =~ "$pd_warn_status" ]]; then
-#                     realslot=$(echo ${pd[i]} | awk -F ";" '{print $2}' | awk -F ":" '{print $2}')
-#                     sed -i "/Slot#:$realslot;/s/^/$pd_warn_level:  /" /tmp/lsi_array_info.txt 2>/dev/null
-#                 fi
-#             done
-#         done
-#     fi
+check_sas3() {
+    # 获取 ctl 数量
+    local RAID_BIN=$1
+    local ctls ctl_no vd_cnt pd_output vd_output pd_line vd_line
 
-#     sed -i "/^[a-zA-Z]/s/^/未知状态:  /" /tmp/lsi_array_info.txt 2>/dev/null
-#     whole_health=$(cat /tmp/lsi_array_info.txt 2>/dev/null | grep -Ec "严重|告警|未知状态")
-#     if [ $whole_health = 0 ]; then
-#         echo "信息:  Raid卡状态正常" >/tmp/lsi_array_info.txt 2>/dev/null
-#     fi
-#     sed -i 's/VirtualDrive/虚拟磁盘/g;s/PredictiveFailureCount/磁盘错误计数/g;s/State/磁盘状态/g;s/SlotNumber/槽位/g;s/Firmwarestate/磁盘状态/g;s/Slot#/槽位/g;s/IRvolume/虚拟磁盘/g;s/Statusofvolume/磁盘状态/g' /tmp/lsi_array_info.txt 2>/dev/null
+    mapfile -t ctls < <("${RAID_BIN}" list | grep -P "^\s*\d.*?SAS" | awk '{print $1}')
+    # for ((i = 0; i < $array_num; i++)); do
+    #     /etc/zabbix/script/$command $i display | awk '/IR Volume information/,/Physical device information/{print}' | grep -E "IR volume|Status of volume" | sed 'N;s/\n/;/g' | sed 's/ //g' | sed 's/^/Raid卡'${array[i]}'&;/g' >>/tmp/lsi_array_info.txt 2>/dev/null
+    #     /etc/zabbix/script/$command $i display | awk '/Physical device information/,/Enclosure information/{print}' | grep -A 13 "Device is a Hard disk" | grep -E "Slot|State" | sed 'N;s/\n/;/g' | sed 's/ //g' | sed 's/^/Raid卡'${array[i]}'&;/g' >>/tmp/lsi_array_info.txt 2>/dev/null
+    # done
+    # 遍历 ctl
+    for ctl_no in "${ctls[@]}"; do
+        # vd这一段, 现场没有用这个卡做vd的, 所以是从老代码改造来的, 没有实际测过
+        unset vd_output
+        mapfile -t vd_output < <(
+            "${RAID_BIN}" "${ctl_no}" display |
+                awk '/IR Volume information/,/Physical device information/{print}' |
+                grep -E "IR volume|Status of volume" |
+                sed 'N;s/\n/;/g' |
+                sed 's/ //g'
+        )
+        for vd_line in "${vd_output[@]}"; do
+            vd_no="$(echo "${vd_line}" | awk -F '[;:]' '{print $2}')"
+            vd_stat="$(echo "${pd_line}" | awk -F ":" '{print $NF}')"
+            for vd_keyword in "${LD_KEYWORDS[@]}"; do
+                if echo "${vd_stat}" | grep -iq "${vd_keyword%%|*}"; then
+                    vd_stat_cn="${vd_keyword##*|}"
+                    break
+                fi
+            done
+            unset vd_info
+            local -A vd_info
+            vd_info=(
+                [阵列卡号]="${ctl_no}"
+                [虚拟磁盘号]="${vd_no}"
+                [虚拟磁盘状态]="${vd_stat}"
+                [虚拟磁盘中文状态]="${vd_stat_cn}"
+            )
+            # 将 pd_info append 到 raid_status_json 中
+            jq -c --argjson new "$(associate_array_to_json vd_info)" '. + [$new]' <<<"$raid_status_json"
+        done
 
-# }
+        unset pd_output
+        mapfile -t pd_output < <(
+            "${RAID_BIN}" "${ctl_no}" display |
+                awk '/Physical device information/,/Enclosure information/{print}' |
+                grep -A 13 "Device is a Hard disk" |
+                grep -E "Slot|State" |
+                sed 'N;s/\n/;/g' | sed 's/ //g'
+        )
+        # Enclosure#:2;Slot#:12;State:Ready(RDY)
+        for pd_line in "${pd_output[@]}"; do
+            pd_no="$(echo "${pd_line}" | awk -F '[;:]' '{print $2}')"
+            pd_stat="$(echo "${pd_line}" | awk -F '[;:]' '{print $4}')"
+            for pd_keyword in "${PD_KEYWORDS[@]}"; do
+                if echo "${pd_stat}" | grep -iq "${pd_keyword%%|*}"; then
+                    pd_stat_cn="${pd_keyword##*|}"
+                    break
+                fi
+            done
+            unset pd_info
+            local -A pd_info
+            pd_info=(
+                [阵列卡号]="${ctl_no}"
+                [物理磁盘号]="${pd_no}"
+                [物理磁盘状态]="${pd_stat}"
+                [物理磁盘中文状态]="${pd_stat_cn}"
+            )
+            # 将 pd_info append 到 raid_status_json 中
+            jq -c --argjson new "$(associate_array_to_json pd_info)" '. + [$new]' <<<"$raid_status_json"
+        done
+    done
+}
 
-if [[ "$RAID_TYPE" == "adaptec" && -n "$RAID_BIN" ]]; then
-    arcconf_out="$($RAID_BIN GETCONFIG 1 PD 2>/dev/null)"
-    raid_status_arr=($(echo "$arcconf_out" | grep -E "$fault_pattern" | awk '{print $NF}' | sort | uniq))
-    raid_pd_count=$(echo "$arcconf_out" | grep -c "Device #")
-elif [[ "$RAID_TYPE" == "lsi" && -n "$RAID_BIN" ]]; then
-    ctl_no="$($RAID_BIN show | grep -PA2 "Ctl\s*Model" | tail -n1 | awk '{print $1}')"
-    storcli_out="$($RAID_BIN /c"${ctl_no}" show 2>/dev/null)"
-    raid_status_arr=($(echo "$storcli_out" | grep -E "$fault_pattern" | awk '{print $NF}' | sort | uniq))
-    raid_pd_count=$(echo "$storcli_out" | grep -c "EID=")
-fi
-json_raid_count=0
-if [[ -f "$ORIGINAL_LOGFILE" ]]; then
-    json_raid_count=$(jq '[.storage[] | select(.type=="raid")1] | length' "$ORIGINAL_LOGFILE" 2>/dev/null)
-fi
-if [[ "$json_raid_count" != "$raid_pd_count" ]]; then
-    json_count_mismatch="RAID disk count mismatch: json=$json_raid_count, detected=$raid_pd_count"
-fi
-jq -n --argjson arr "$(printf '%s\n' "${raid_status_arr[@]}" | jq -R . | jq -s .)" \
-    --arg mismatch "$json_count_mismatch" \
-    '{raid_status: $arr, raid_count_mismatch: ($mismatch == "null" ? null : $mismatch)}'
+check_adaptec() {
+    local RAID_BIN=$1
+    local ctl_no="" # 这个未见到有多个阵列卡的可能只会有一个
+    local vd_output vd_line
+    mafile -t vd_output < <(
+        "${RAID_BIN}" GETCONFIG 1 LD |
+            grep -E "Logical Device number|Status of Logical Device" |
+            sed -E 'N; s/\n/;/; s/(Logical Device number)/\1:/g; s/[[:space:]]+//g'
+    )
+    local vd_no vd_stat vd_stat_cn vd_keyword
+    for vd_line in "${vd_output[@]}"; do
+        vd_no="$(echo "${vd_line}" | awk -F '[;:]' '{print $2}')"
+        vd_stat="$(echo "${pd_line}" | awk -F ":" '{print $NF}')"
+        for vd_keyword in "${LD_KEYWORDS[@]}"; do
+            if echo "${vd_stat}" | grep -iq "${vd_keyword%%|*}"; then
+                vd_stat_cn="${vd_keyword##*|}"
+                break
+            fi
+        done
+        unset vd_info
+        local -A vd_info
+        vd_info=(
+            [阵列卡号]="${ctl_no}"
+            [虚拟磁盘号]="${vd_no}"
+            [虚拟磁盘状态]="${vd_stat}"
+            [虚拟磁盘中文状态]="${vd_stat_cn}"
+        )
+        # 将 pd_info append 到 raid_status_json 中
+        jq -c --argjson new "$(associate_array_to_json vd_info)" '. + [$new]' <<<"$raid_status_json"
+    done
+
+    local pd_output pd_line
+    mafile -t pd_output < <(
+        "${RAID_BIN}" GETCONFIG 1 PD |
+            grep -Ew "Device |State" |
+            grep -v "Power State" |
+            sed -E ' N; s/\n/;/g; s/[[:space:]]+//g' |
+            grep State
+    )
+    local pd_no pd_stat pd_keyword pd_stat_cn
+    for pd_line in "${pd_output[@]}"; do
+        pd_no="$(echo "${pd_line}" | awk -F '[#;:]' '{print $2}')"
+        pd_stat="$(echo "${pd_line}" | awk -F '[#;:]' '{print $NF}')"
+        for pd_keyword in "${PD_KEYWORDS[@]}"; do
+            if echo "${pd_stat}" | grep -iq "${pd_keyword%%|*}"; then
+                pd_stat_cn="${pd_keyword##*|}"
+                break
+            fi
+        done
+        unset pd_info
+        local -A pd_info
+        pd_info=(
+            [阵列卡号]="${ctl_no}"
+            [物理磁盘号]="${pd_no}"
+            [物理磁盘状态]="${pd_stat}"
+            [物理磁盘中文状态]="${pd_stat_cn}"
+        )
+        # 将 pd_info append 到 raid_status_json 中
+        jq -c --argjson new "$(associate_array_to_json pd_info)" '. + [$new]' <<<"$raid_status_json"
+    done
+}
+
+get_raid_type
+
+case "${RAID_INFO[type]}" in
+none)
+    exit 0
+    ;;
+mpt3sas)
+    check_sas3 "${RAID_INFO[bin]}"
+    ;;
+lsi)
+    check_lsi "${RAID_INFO[bin]}"
+    ;;
+adaptec)
+    check_adaptec "${RAID_INFO[bin]}"
+    ;;
+*)
+    exit 255
+    ;;
+
+esac
