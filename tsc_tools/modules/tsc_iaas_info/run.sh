@@ -678,13 +678,13 @@ while true; do
     esac
 done
 
+mkdir -p /var/log/tsc/
+original_logfile="/var/log/tsc/tsc_iaas_info.json"
+
 if ${runtime_flag:-false}; then
     runtime
     exit $?
 fi
-
-mkdir -p /var/log/tsc/
-original_logfile="/var/log/tsc/tsc_iaas_info.json"
 
 result="$(
     main |

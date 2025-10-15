@@ -209,7 +209,11 @@ _install() {
         LOGDEBUG "$(\cp "${SOURCE_TSC_PROFILE}" "${DEST_TSC_PROFILE}")"
     else
         sed -i "/# TSC_TOOLS: START/,/# TSC_TOOLS: END/d" "${DEST_TSC_PROFILE}"
-        sed -i "1r ${SOURCE_TSC_PROFILE}" "${DEST_TSC_PROFILE}"
+        if [[ ! -s "${DEST_TSC_PROFILE}" ]]; then
+            LOGDEBUG "$(\cp "${SOURCE_TSC_PROFILE}" "${DEST_TSC_PROFILE}")"
+        else
+            sed -i "1r ${SOURCE_TSC_PROFILE}" "${DEST_TSC_PROFILE}"
+        fi
     fi
     LOGSUCCESS "${FUNCNAME[0]}"
 }

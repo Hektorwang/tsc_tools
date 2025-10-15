@@ -693,33 +693,73 @@ is_element_in_array() {
 }
 export -f is_element_in_array
 
+#######################################
+# 将关联数组的键和值转换为 JSON 对象
+# 通过参数顺序依次接收 keys 和 values（键值对）
+# 使用 jq 生成 JSON 字符串。
+#
+# Globals:
+#   None
+# Arguments:
+#   $@ 依次为关联数组的键和值，
+#       调用方式如：
+#         associate_array_to_json "${!assoc[@]}" "${assoc[@]}"
+# Outputs:
+#   输出 JSON 对象字符串到标准输出，例如：
+#       {"key1":"value1","key2":"value2"}
+# Returns:
+#   None
+#######################################
 associate_array_to_json() {
-    declare -n assoc=$1
     local sep=$'\u0019'
-    for k in "${!assoc[@]}"; do
-        printf '%s%s%s%s' "$k" "$sep" "${assoc[$k]}" "$sep"
-    done |
+    local keys=()
+    local values=()
+    while [[ $# -gt 0 ]]; do
+        keys+=("$1")
+        shift
+        if [[ $# -gt 0 ]]; then
+            values+=("$1")
+            shift
+        fi
+    done
+    {
+        for ((i = 0; i < ${#keys[@]}; i++)); do
+            printf '%s%s%s%s' "${keys[i]}" "$sep" "${values[i]}" "$sep"
+        done
+    } |
         jq -Rrcs --arg sep "$sep" '
-    (split($sep)[:-1]) as $a |
-    [range(0; ($a|length); 2) | { ($a[.]) : $a[. + 1] }] |
-    add
-  '
+            (split($sep)[:-1]) as $a |
+            [range(0; ($a|length); 2) | { ($a[.]) : $a[. + 1] }] |
+            add
+        '
 }
 export -f associate_array_to_json
 
+#######################################
+# 将普通数组转换为 JSON 数组
+# 使用 jq 生成 JSON 数组字符串。
+#
+# Globals:
+#   None
+# Arguments:
+#   $@ 普通数组的所有元素，
+#       调用方式如：
+#         array_to_json "${array[@]}"
+# Outputs:
+#   输出 JSON 数组字符串到标准输出，例如：
+#       ["value1","value2","value3"]
+# Returns:
+#   None
+#######################################
 array_to_json() {
     local sep=$'\u0019'
-    declare -n arr=$1
-
     {
-        for v in "${arr[@]}"; do
+        for v in "$@"; do
             printf '%s%s' "$v" "$sep"
         done
     } |
         jq -Rrcs --arg sep "$sep" '
-    (split($sep)[:-1]) as $a
-    | $a
-  '
+            (split($sep)[:-1]) as $a | $a
+        '
 }
-
 export -f array_to_json
