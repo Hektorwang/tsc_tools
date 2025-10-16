@@ -8,13 +8,14 @@ shopt -s nullglob # When no files match a glob pattern, expand to nothing instea
 IFNAME="$1"
 INTERVAL="3"
 
-if [[ -z "${IFNAME}" ]]; then
+if [[ -z "${IFNAME}" ]] || [[ "${IFNAME}" == "-h" ]] || [[ "${IFNAME}" == "--help" ]]; then
     echo ""
     echo "usage: $0 [network-interface]"
     echo ""
     echo "e.g. $0 eth0"
     echo ""
-    exit 1
+    glow "$(dirname "$0")/readme.md"
+    exit 0
 fi
 
 line_count=0

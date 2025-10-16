@@ -166,14 +166,16 @@ get_disk_info() {
                         END {
                             for (a in r) {
                                 if (r[a]["flag"]==1) {
-                                printf "{\"type\":\"raid\",\"model\":\"%s\",\"serial\":\"%s\",\"wwn\":\"%s\",\"size":%.2f},\"unit\":\"T\"\n", \
+                                printf "{\"type\":\"raid\",\"model\":\"%s\",\"serial\":\"%s\",\"wwn\":\"%s\",\"size\":\"%.2f\",\"unit\":\"T\"}\n", \
                                     r[a]["model"], r[a]["serial"],r[a]["wwn"],r[a]["size"]
                                 }
                             }
                         }
                     '
             )
-            disk_detail+=("${raid_detail[@]}")
+            if [[ "${#raid_detail[@]}" -gt 0 ]]; then
+                disk_detail+=("${raid_detail[@]}")
+            fi
         elif [[ "${RAID_INFO[type]}" == "lsi" && -n "${RAID_INFO[bin]}" ]]; then
             # LSI|AVAGO|MegaRAID
             ctl_no=$(
@@ -199,9 +201,10 @@ get_disk_info() {
         fi
     fi
     # 判断是不是RAID盘, 条件慢慢补充
-    # TRAN 是空, 且整行中没有 Virtual disk|VMware
-    # VENDOR = LSI|DELL|HP|AVAGO
-    # MODEL 含有 LOGICAL
+    # TRAN 是空, 且整行中没有 Virtual disk|VMware -> 是
+    # VENDOR = LSI|DELL|HP|AVAGO -> 是
+    # MODEL 含有 LOGICAL -> 是
+    # readlink -f /sys/block/块设备名 看 / 分割的第四位和第五位 lspci看是否是raid卡, 这里是块设备的总线的路径
     mapfile -t lsblk_info < <(lsblk -Pdo NAME,MODEL,SERIAL,SIZE,TYPE,VENDOR,TRAN,WWN | grep disk)
     # while read -r line; do
     for lsblk_line in "${lsblk_info[@]}"; do
@@ -252,7 +255,15 @@ get_disk_info() {
             if (
                 ! echo "${disk_detail[*]}" | grep -iq "${serial}" ||
                     echo "${lsblk_line}" | grep -qP "Virtual disk|VMware" ||
-                    { [[ -n "${wwn}" ]] && ! echo "${disk_detail[*]}" | grep -iq "${wwn}"; }
+                    { [[ -n "${wwn}" ]] && ! echo "${disk_detail[*]}" | grep -iq "${wwn}"; } ||
+                    ! { # 查找块设备的总线路径, 看其上级设备名字有没有带 raid 这个关键字的
+                        lspci |
+                            grep -qE "$(
+                                readlink -f "/sys/block/${name}" |
+                                    awk -F / '{print $5"|"$6}' |
+                                    sed 's/\b0000://g'
+                            )" | grep -qi raid
+                    }
             ); then
                 disk_detail+=("${da_disk_detail}")
             fi

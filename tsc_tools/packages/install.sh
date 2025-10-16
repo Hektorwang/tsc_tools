@@ -19,7 +19,7 @@ readonly -A SUPPORTED_BINARY_TOOLS=(
     ["qrencode"]="-V"
     ["sshpass"]="-V"
     ["stress-ng"]="-V"
-    ["sas3ircu"]="help create"
+    # ["sas3ircu"]="help create"
 )
 
 ##################################################
@@ -77,6 +77,15 @@ _install_raid_cli() {
     if [[ $1 != "pm" ]]; then
         return 0
     fi
+    local is_sas3ircu
+    is_sas3ircu="$(
+        "${BINARY_TOOLS_DIR}/sas3ircu/sas3ircu-$(arch)" list &>/dev/null
+    )"
+    if [[ "${is_sas3ircu:-0}" -ne 0 ]]; then
+        \cp "${BINARY_TOOLS_DIR}/sas3ircu/sas3ircu-$(arch)" /bin/sas3ircu
+        chmod +x /bin/sas3ircu
+        LOGSUCCESS "Installed /bin/sas3ircu"
+    fi
     local is_storcli
     is_storcli="$(
         "${BINARY_TOOLS_DIR}/storcli64/storcli64-noarch" show 2>&1 |
@@ -84,8 +93,9 @@ _install_raid_cli() {
     )"
     if [[ "${is_storcli:-0}" -ne 0 ]]; then
         \cp "${BINARY_TOOLS_DIR}/storcli64/storcli64-noarch" /bin/storcli64
+        ln -sf /bin/storcli64 /bin/storcli
         chmod +x /bin/storcli64
-        LOGSUCCESS "Installed /bin/storcli64"
+        LOGSUCCESS "Installed /bin/storcli64 /bin/storcli"
     fi
     local is_arcconf
     "${BINARY_TOOLS_DIR}/arcconf/arcconf-$(arch)" GETCONFIG 1 PD &>/dev/null

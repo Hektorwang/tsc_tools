@@ -8,7 +8,7 @@
 
 ```bash
 source /home/tsc/tsc_profile
-tsc --tsc_netspeed eth0
+tsc --tsc_netspeed ens192
 ```
 
 ## 输出样例

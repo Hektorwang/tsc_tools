@@ -142,6 +142,7 @@ function main() {
         local start=${module_arg_indices[$module]}
         local end=${module_arg_indices["${module}_end"]}
         local count=$((end - start))
+        set +o nounset
         local module_args=("${all_args[@]:$start:$count}")
         run_module_with_args "$module" "${module_args[@]}"
     done
