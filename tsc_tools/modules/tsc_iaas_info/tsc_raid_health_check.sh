@@ -51,27 +51,35 @@ raid_status_json="[]"
 declare -A RAID_INFO
 
 associate_array_to_json() {
+    # 用法：associate_array_to_json <assoc_array_name>
+    # 例如：associate_array_to_json vd_info
+    local arr_name="$1"
     local sep=$'\u0019'
-    local keys=()
-    local values=()
-    while [[ $# -gt 0 ]]; do
-        keys+=("$1")
-        shift
-        if [[ $# -gt 0 ]]; then
-            values+=("$1")
-            shift
-        fi
+    local out="" key val
+
+    # 获取 keys（按 keys 顺序取值）
+    set -f
+    eval "keys=(\"\${!${arr_name}[@]}\")" 2>/dev/null || keys=()
+    set +f
+    if (( ${#keys[@]} == 0 )); then
+        printf '%s\n' '{}'
+        return
+    fi
+
+    for key in "${keys[@]}"; do
+        # 按 key 顺序安全读取 value（若未定义则为空）
+        set -f
+        eval "val=\${${arr_name}[\"\$key\"]-}" 2>/dev/null || val=""
+        set +f
+        out+="${key}${sep}${val}${sep}"
     done
-    {
-        for ((i = 0; i < ${#keys[@]}; i++)); do
-            printf '%s%s%s%s' "${keys[i]}" "$sep" "${values[i]}" "$sep"
-        done
-    } |
-        jq -Rrcs --arg sep "$sep" '
-            (split($sep)[:-1]) as $a |
-            [range(0; ($a|length); 2) | { ($a[.]) : $a[. + 1] }] |
-            add
-        '
+
+    # 用 jq 将 NUL 分隔流转换为紧凑 JSON 输出
+    printf '%s' "$out" | jq -R -s --arg sep "$sep" -c '
+        (split($sep)[:-1]) as $a |
+        [range(0; ($a|length); 2) | { ($a[.]) : $a[. + 1] }] |
+        add
+    '
 }
 array_to_json() {
     local sep=$'\u0019'
@@ -194,7 +202,7 @@ check_lsi() {
                 [物理磁盘中文状态]="${pd_stat_cn}"
             )
             # 将 pd_info append 到 raid_status_json 中
-            jq -c --argjson new "$(associate_array_to_json "{!pd_info[@]}" "${pd_info[@]}")" '. + [$new]' <<<"$raid_status_json"
+            jq -c --argjson new "$(associate_array_to_json "${!pd_info[@]}" "${pd_info[@]}")" '. + [$new]' <<<"$raid_status_json"
         done < <(echo "${storcli_out}" | grep -A "$((pd_cnt + 5))" "PD LIST" | tail -n "${pd_cnt}")
     done
 }
@@ -268,7 +276,7 @@ check_sas3() {
                 [物理磁盘中文状态]="${pd_stat_cn}"
             )
             # 将 pd_info append 到 raid_status_json 中
-            jq -c --argjson new "$(associate_array_to_json "{!pd_info[@]}" "${pd_info[@]}")" '. + [$new]' <<<"$raid_status_json"
+            jq -c --argjson new "$(associate_array_to_json "${!pd_info[@]}" "${pd_info[@]}")" '. + [$new]' <<<"$raid_status_json"
         done
     done
 }
@@ -285,7 +293,7 @@ check_adaptec() {
     local vd_no vd_stat vd_stat_cn vd_keyword
     for vd_line in "${vd_output[@]}"; do
         vd_no="$(echo "${vd_line}" | awk -F '[;:]' '{print $2}')"
-        vd_stat="$(echo "${pd_line}" | awk -F ":" '{print $NF}')"
+        vd_stat="$(echo "${vd_line}" | awk -F ":" '{print $NF}')"
         for vd_keyword in "${LD_KEYWORDS[@]}"; do
             if echo "${vd_stat}" | grep -iq "${vd_keyword%%|*}"; then
                 vd_stat_cn="${vd_keyword##*|}"
@@ -331,7 +339,7 @@ check_adaptec() {
             [物理磁盘中文状态]="${pd_stat_cn}"
         )
         # 将 pd_info append 到 raid_status_json 中
-        jq -c --argjson new "$(associate_array_to_json "{!pd_info[@]}" "${pd_info[@]}")" '. + [$new]' <<<"$raid_status_json"
+        jq -c --argjson new "$(associate_array_to_json "${!pd_info[@]}" "${pd_info[@]}")" '. + [$new]' <<<"$raid_status_json"
     done
 }
 

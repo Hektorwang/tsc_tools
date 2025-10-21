@@ -19,7 +19,6 @@ readonly -A SUPPORTED_BINARY_TOOLS=(
     ["qrencode"]="-V"
     ["sshpass"]="-V"
     ["stress-ng"]="-V"
-    # ["sas3ircu"]="help create"
 )
 
 ##################################################
@@ -33,7 +32,7 @@ readonly -A SUPPORTED_BINARY_TOOLS=(
 _install() {
     local tool_name failed_tools=() installed_tools=() missing_tools=()
     for tool_name in "${!SUPPORTED_BINARY_TOOLS[@]}"; do
-        if "${tool_name}" ${SUPPORTED_BINARY_TOOLS[${tool_name}]} &>/dev/null; then
+        if "${tool_name}" "${SUPPORTED_BINARY_TOOLS[${tool_name}]}" &>/dev/null; then
             installed_tools+=("${tool_name}")
             continue
         fi

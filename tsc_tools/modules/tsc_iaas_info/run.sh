@@ -18,7 +18,7 @@ get_cpu_info() {
     local cpu_model cpu_cnt cpu_arch
     cpu_model="$(awk -F : '/model name/{print $2}' /proc/cpuinfo | sort -u | sed 's/^\s*//')"
     cpu_cnt="$(lscpu | awk '/^Socket\(s\):/{print $2}')"
-    jq -n --arg model "$cpu_model" --argjson cnt "$cpu_cnt" \
+    jq -rcn --arg model "$cpu_model" --argjson cnt "$cpu_cnt" \
         '{cpu: {cpu_model: $model, cpu_cnt: $cnt}}'
 }
 
@@ -45,39 +45,66 @@ get_mem_info() {
             --argjson size "${size_val}" \
             '{"size": $size, locator: $locator, unit: "G"}'
     done |
-        jq -s '{memory: .}'
+        jq -rcs '{memory: .}'
 }
 
 get_serial_number() {
+    # 优先级：命令行 --sn > 原日志 sn > dmidecode 自动获取
     local sn_file="${original_logfile}"
     local invalid_sns=('1234567890' '01234567890' '0000000000' 'To be filled by O.E.M.' '')
-    local sn=""
-
-    if [[ -f "${sn_file}" ]]; then
-        sn=$(jq -r .sn "${sn_file}" 2>/dev/null || echo "")
+    local serial=""
+    # 1) 命令行 --sn 优先（全局变量 sn 由参数解析设置）
+    if [[ -n "${sn:-}" ]]; then
+        serial="${sn}"
+    else
+        # 2) 若 original_logfile 存在且有 sn，则使用之
+        if [[ -f "${sn_file}" ]]; then
+            serial="$(jq -r .sn "${sn_file}" 2>/dev/null || echo "")"
+        fi
+        # 3) 若仍为空或无效，则用 dmidecode 等方式探测
+        if [[ -z "${serial}" ]]; then
+            serial="$(dmidecode -s system-serial-number 2>/dev/null | grep -v '#' | head -n1 || echo "")"
+            for invalid_sn in "${invalid_sns[@]}"; do
+                if [[ "${serial}" == "${invalid_sn}" ]]; then
+                    serial="$(dmidecode -s baseboard-serial-number 2>/dev/null | head -n1 || echo "")"
+                    break
+                fi
+            done
+            for invalid_sn in "${invalid_sns[@]}"; do
+                if [[ "${serial}" == "${invalid_sn}" ]]; then
+                    serial="None"
+                    break
+                fi
+            done
+        fi
+    fi
+    if [[ -z "${serial}" ]]; then
+        serial="None"
     fi
 
-    if [[ -z "${sn}" ]]; then
-        sn="$(dmidecode -s system-serial-number 2>/dev/null | grep -v '#' | head -n1 || echo "")"
-        for invalid_sn in "${invalid_sns[@]}"; do
-            if [[ "${sn}" == "${invalid_sn}" ]]; then
-                sn="$(dmidecode -s baseboard-serial-number 2>/dev/null | head -n1 || echo "")"
-                break
-            fi
-        done
-        for invalid_sn in "${invalid_sns[@]}"; do
-            if [[ "${sn}" == "${invalid_sn}" ]]; then
-                sn="None"
-                break
-            fi
-        done
-    fi
+    jq -rcn --arg sn "${serial}" '{sn: $sn}'
+}
 
-    if [[ -z "${sn}" ]]; then
-        sn="None"
+# 从 original_logfile 继承 contract_no（如果本次未提供则继承）
+get_contract_no() {
+    local val=""
+    if [[ -n "${contract_no:-}" ]]; then
+        val="${contract_no}"
+    elif [[ -f "${original_logfile}" ]]; then
+        val="$(jq -r '.contract_no // ""' "${original_logfile}" 2>/dev/null || echo "")"
     fi
+    jq -rcn --arg contract_no "${val}" '{contract_no: $contract_no}'
+}
 
-    jq -n --arg sn "${sn}" '{sn: $sn}'
+# 从 original_logfile 继承 location（如果本次未提供则继承）
+get_location() {
+    local val=""
+    if [[ -n "${location:-}" ]]; then
+        val="${location}"
+    elif [[ -f "${original_logfile}" ]]; then
+        val="$(jq -r '.location // ""' "${original_logfile}" 2>/dev/null || echo "")"
+    fi
+    jq -rcn --arg location "${val}" '{location: $location}'
 }
 
 get_raid_type() {
@@ -200,11 +227,7 @@ get_disk_info() {
             disk_detail+=("${raid_detail[@]}")
         fi
     fi
-    # 判断是不是RAID盘, 条件慢慢补充
-    # TRAN 是空, 且整行中没有 Virtual disk|VMware -> 是
-    # VENDOR = LSI|DELL|HP|AVAGO -> 是
-    # MODEL 含有 LOGICAL -> 是
-    # readlink -f /sys/block/块设备名 看 / 分割的第四位和第五位 lspci看是否是raid卡, 这里是块设备的总线的路径
+    # 逐行看块设备是否是直通盘
     mapfile -t lsblk_info < <(lsblk -Pdo NAME,MODEL,SERIAL,SIZE,TYPE,VENDOR,TRAN,WWN | grep disk)
     # while read -r line; do
     for lsblk_line in "${lsblk_info[@]}"; do
@@ -237,11 +260,27 @@ get_disk_info() {
             size_val="$(echo "${size}" | grep -oP '\d+(\.\d+)?')"
             size="$(awk -v val="${size_val}" 'BEGIN{printf "%.2f", val / 1024}')"
         fi
-        if { [[ -z "${tran}" ]] && ! echo "${lsblk_line}" | grep -qP "Virtual disk|VMware"; } ||
-            echo "${model}" | grep -q 'LOGICAL' ||
-            echo "${vendor}" | grep -qP "LSI|DELL|HP|AVAGO"; then
-            raid_disks+=("${name}")
-        else
+        # 判断是不是主板直通盘, 条件慢慢补充
+        # 虚拟磁盘 Virtual disk|VMware -> 视为直通盘
+        # VENDOR 不含 raid卡关键字 LSI|DELL|HP|AVAGO 且
+        # MODEL 不含逻辑卷关键字 LOGICAL 且
+        # readlink -f /sys/block/块设备名 看 / 分割的第5位和第6位, 这里是块设备的总线的路径。lspci看不含Raid卡关键字
+        if (
+            { echo "${lsblk_line}" | grep -qiP "Virtual disk|VMware"; } ||
+                (
+                    { ! echo "${vendor}" | grep -qP "LSI|DELL|HP|AVAGO"; } &&
+                        { ! echo "${model}" | grep -q 'LOGICAL'; } &&
+                        { # 查找块设备的总线路径, 看其上级设备名字有没有带 raid 这个关键字的
+                            ! lspci |
+                                grep -E "$(
+                                    readlink -f "/sys/block/${name}" |
+                                        awk -F / '{print $5"|"$6}' |
+                                        sed 's/\b0000://g'
+                                )" |
+                                grep -qiE "raid|Adaptec|Avago|LSI|MegaRAID|RAID bus controller"
+                        }
+                )
+        ); then
             da_disks+=("${name}")
             da_disk_detail="$(
                 jq -n \
@@ -251,22 +290,7 @@ get_disk_info() {
                     --arg type "direct" \
                     '{serial: $serial, model: $model, "size": $size, type: $type, unit: "T"}'
             )"
-            # 如果这个盘不在RAID卡上到或为虚拟磁盘则加入直通盘
-            if (
-                ! echo "${disk_detail[*]}" | grep -iq "${serial}" ||
-                    echo "${lsblk_line}" | grep -qP "Virtual disk|VMware" ||
-                    { [[ -n "${wwn}" ]] && ! echo "${disk_detail[*]}" | grep -iq "${wwn}"; } ||
-                    ! { # 查找块设备的总线路径, 看其上级设备名字有没有带 raid 这个关键字的
-                        lspci |
-                            grep -qE "$(
-                                readlink -f "/sys/block/${name}" |
-                                    awk -F / '{print $5"|"$6}' |
-                                    sed 's/\b0000://g'
-                            )" | grep -qi raid
-                    }
-            ); then
-                disk_detail+=("${da_disk_detail}")
-            fi
+            disk_detail+=("${da_disk_detail}")
         fi
     done
     [[ "${#disk_detail[@]}" -ge 1 ]] &&
@@ -601,17 +625,21 @@ main() {
     local system_info manufacturer sn cpu_info mem_info disk_info machine_type
     system_info="$(detect_system_info)"
     machine_type="$(echo $system_info | jq -r .machine_type)"
-    sn="$(get_serial_number)"
+    sn_json="$(get_serial_number | jq -c . 2>/dev/null || echo '{}')"
+    contract_no_json="$(get_contract_no | jq -c . 2>/dev/null || echo '{}')"
+    location_json="$(get_location | jq -c . 2>/dev/null || echo '{}')"
     manufacturer="$(dmidecode -s system-manufacturer | grep -vP "^\s*$|^\s*#")"
-    cpu_info="$(get_cpu_info)"
-    mem_info="$(get_mem_info)"
-    disk_info="$(get_disk_info "${machine_type}")"
+    cpu_info="$(get_cpu_info | jq -c . 2>/dev/null || echo '{}')"
+    mem_info="$(get_mem_info | jq -c . 2>/dev/null || echo '{}')"
+    disk_info="$(get_disk_info "${machine_type}" | jq -c . 2>/dev/null || echo '{}')"
     echo "${system_info}" |
-        jq --argjson sn "${sn}" '. + $sn' |
+        jq --argjson sn "${sn_json}" '. + $sn' |
         jq --arg manufacturer "${manufacturer}" '. + {manufacturer: $manufacturer}' |
         jq --argjson cpu_info "${cpu_info}" '. + $cpu_info' |
         jq --argjson mem_info "${mem_info}" '. + $mem_info' |
-        jq --argjson disk_info "${disk_info}" '. + $disk_info'
+        jq --argjson disk_info "${disk_info}" '. + $disk_info' |
+        jq --argjson contract_no "${contract_no_json}" '. + $contract_no' |
+        jq --argjson location "${location_json}" '. + $location'
 }
 
 usage() {
@@ -632,7 +660,7 @@ EOF
 OPTIONS=$(
     getopt \
         --options="" \
-        --longoptions=contract_no:,location:,help,runtime,cpu_threshold:,storage_threshold:,memory_threshold: \
+        --longoptions=contract_no:,location:,sn:,help,runtime,cpu_threshold:,storage_threshold:,memory_threshold: \
         --name "$0" \
         -- "$@"
 ) || {
@@ -643,6 +671,7 @@ eval set -- "$OPTIONS"
 
 contract_no=""
 location=""
+sn=""
 
 while true; do
     case "$1" in
@@ -663,6 +692,10 @@ while true; do
         ;;
     --memory_threshold)
         memory_threshold="$2"
+        shift 2
+        ;;
+    --sn)
+        sn="$2"
         shift 2
         ;;
     --contract_no)
@@ -697,24 +730,54 @@ if ${runtime_flag:-false}; then
     exit $?
 fi
 
-result="$(
-    main |
-        jq -r --arg contract_no "${contract_no}" --arg location "${location}" '
-  . + (if $contract_no != "" then {contract_no: $contract_no} else {} end)
-    + (if $location != "" then {location: $location} else {} end)
-'
-)"
-if [[ -s "${original_logfile}" ]]; then
-    original_info="$(jq -r . <"${original_logfile}")"
-else
-    original_info='{}'
+# result="$(
+#     main |
+#         jq -r --arg contract_no "${contract_no}" --arg location "${location}" '
+#   . + (if $contract_no != "" then {contract_no: $contract_no} else {} end)
+#     + (if $location != "" then {location: $location} else {} end)
+# '
+# )"
+
+# 读取原始日志（若存在）
+# if [[ -s "${original_logfile}" ]]; then
+#     original_info="$(jq -rc . <"${original_logfile}")"
+# else
+#     original_info='{}'
+# fi
+
+# 生成时间戳文件名
+timestamp="$(date +%Y%m%d%H%M%S)"
+new_file="/var/log/tsc/tsc_iaas_info-${timestamp}.json"
+
+main | jq -S . | tee "${new_file}"
+
+# 计算标准化后 md5
+md5_new="$(jq -Src . "${new_file}" | md5sum | awk '{print $1}')"
+# 直接解析 original_logfile 的实际目标并用该目标计算 md5（若目标存在）
+orig_target="$(readlink -f "${original_logfile}" 2>/dev/null || true)"
+md5_orig=""
+if [[ -n "${orig_target}" && -f "${orig_target}" ]]; then
+    md5_orig="$(jq -Src . "${orig_target}" | md5sum | awk '{print $1}')"
+elif [[ -f "${original_logfile}" ]]; then
+    md5_orig="$(jq -Src . "${original_logfile}" | md5sum | awk '{print $1}')"
 fi
 
-final_result=$(
-    jq --argjson new "${result}" \
-        --argjson original "${original_info}" '
-    $new * $original
-' <<<'{}'
-)
+# 若相同：删除原软链指向的目标文件（若存在）并把软链指向新文件
+# 若不同：保留原目标文件，但仍把软链指向新文件
+if [[ -n "${md5_new}" && "${md5_new}" == "${md5_orig}" ]]; then
+    if [[ -n "${orig_target}" && -f "${orig_target}" ]]; then
+        rm -f "${orig_target}" || true
+    fi
+    ln -sf "${new_file}" "${original_logfile}"
+else
+    ln -sf "${new_file}" "${original_logfile}"
+fi
 
-echo "${final_result}" | tee "${original_logfile}"
+# final_result=$(
+#     jq --argjson new "${result}" \
+#         --argjson original "${original_info}" '
+#     $new * $original
+# ' <<<'{}'
+# )
+
+# echo "${final_result}" | tee "${original_logfile}"
