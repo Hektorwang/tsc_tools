@@ -30,6 +30,7 @@ mkdir -p "${PACKAGE_SOURCE_DIR}"
 \cp "${PROJECT_DIR}"/install.sh "${PACKAGE_SOURCE_DIR}"/
 \cp -r "${PROJECT_DIR}"/tsc_tools "${PACKAGE_SOURCE_DIR}"/
 find "${PACKAGE_SOURCE_DIR}" -type f -name "*.sh" -exec chmod +x {} \;
+find "${PACKAGE_SOURCE_DIR}" -type f -name "*.sh" -exec dos2unix {} \;
 
 # 打印打包信息
 echo "Build Start --> ${RELEASE_FILE}"

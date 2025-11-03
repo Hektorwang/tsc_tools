@@ -711,27 +711,35 @@ export -f is_element_in_array
 #   None
 #######################################
 associate_array_to_json() {
+    # 用法：associate_array_to_json <assoc_array_name>
+    # 例如：associate_array_to_json vd_info
+    local arr_name="$1"
     local sep=$'\u0019'
-    local keys=()
-    local values=()
-    while [[ $# -gt 0 ]]; do
-        keys+=("$1")
-        shift
-        if [[ $# -gt 0 ]]; then
-            values+=("$1")
-            shift
-        fi
+    local out="" key val
+
+    # 获取 keys（按 keys 顺序取值）
+    set -f
+    eval "keys=(\"\${!${arr_name}[@]}\")" 2>/dev/null || keys=()
+    set +f
+    if ((${#keys[@]} == 0)); then
+        printf '%s\n' '{}'
+        return
+    fi
+
+    for key in "${keys[@]}"; do
+        # 按 key 顺序安全读取 value（若未定义则为空）
+        set -f
+        eval "val=\${${arr_name}[\"\$key\"]-}" 2>/dev/null || val=""
+        set +f
+        out+="${key}${sep}${val}${sep}"
     done
-    {
-        for ((i = 0; i < ${#keys[@]}; i++)); do
-            printf '%s%s%s%s' "${keys[i]}" "$sep" "${values[i]}" "$sep"
-        done
-    } |
-        jq -Rrcs --arg sep "$sep" '
-            (split($sep)[:-1]) as $a |
-            [range(0; ($a|length); 2) | { ($a[.]) : $a[. + 1] }] |
-            add
-        '
+
+    # 用 jq 将 NUL 分隔流转换为紧凑 JSON 输出
+    printf '%s' "$out" | jq -R -s --arg sep "$sep" -c '
+        (split($sep)[:-1]) as $a |
+        [range(0; ($a|length); 2) | { ($a[.]) : $a[. + 1] }] |
+        add
+    '
 }
 export -f associate_array_to_json
 

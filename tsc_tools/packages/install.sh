@@ -78,7 +78,8 @@ _install_raid_cli() {
     fi
     local is_sas3ircu
     is_sas3ircu="$(
-        "${BINARY_TOOLS_DIR}/sas3ircu/sas3ircu-$(arch)" list &>/dev/null
+        "${BINARY_TOOLS_DIR}/sas3ircu/sas3ircu-$(arch)" list &>/dev/null ||
+            echo 0
     )"
     if [[ "${is_sas3ircu:-0}" -ne 0 ]]; then
         \cp "${BINARY_TOOLS_DIR}/sas3ircu/sas3ircu-$(arch)" /bin/sas3ircu
@@ -97,7 +98,7 @@ _install_raid_cli() {
         LOGSUCCESS "Installed /bin/storcli64 /bin/storcli"
     fi
     local is_arcconf
-    "${BINARY_TOOLS_DIR}/arcconf/arcconf-$(arch)" GETCONFIG 1 PD &>/dev/null
+    "${BINARY_TOOLS_DIR}/arcconf/arcconf-$(arch)" GETCONFIG 1 PD &>/dev/null || false
     is_arcconf=$?
     if [[ "${is_arcconf}" -eq 0 ]]; then
         \cp "${BINARY_TOOLS_DIR}/arcconf/arcconf-$(arch)" /bin/arcconf

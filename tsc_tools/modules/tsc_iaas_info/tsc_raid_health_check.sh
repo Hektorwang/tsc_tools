@@ -51,8 +51,6 @@ raid_status_json="[]"
 declare -A RAID_INFO
 
 associate_array_to_json() {
-    # 用法：associate_array_to_json <assoc_array_name>
-    # 例如：associate_array_to_json vd_info
     local arr_name="$1"
     local sep=$'\u0019'
     local out="" key val
@@ -61,7 +59,7 @@ associate_array_to_json() {
     set -f
     eval "keys=(\"\${!${arr_name}[@]}\")" 2>/dev/null || keys=()
     set +f
-    if (( ${#keys[@]} == 0 )); then
+    if ((${#keys[@]} == 0)); then
         printf '%s\n' '{}'
         return
     fi
@@ -177,7 +175,9 @@ check_lsi() {
                 [虚拟磁盘中文状态]="${vd_stat_cn}"
             )
             # 将 vd_info append 到 raid_status_json 中
-            jq -c --argjson new "$(associate_array_to_json "${!vd_info[@]}" "${vd_info[@]}")" '. + [$new]' <<<"$raid_status_json"
+            raid_status_json="$(
+                jq -c --argjson new "$(associate_array_to_json vd_info)" '. + [$new]' <<<"$raid_status_json"
+            )"
         done < <(echo "${storcli_out}" | grep -A "$((vd_cnt + 5))" "VD LIST" | tail -n "${vd_cnt}")
 
         # 获取 pd 数量, 遍历各 pd 状态, 对比状态表, 将结果追加到总结果 raid_status_json
@@ -202,7 +202,9 @@ check_lsi() {
                 [物理磁盘中文状态]="${pd_stat_cn}"
             )
             # 将 pd_info append 到 raid_status_json 中
-            jq -c --argjson new "$(associate_array_to_json "${!pd_info[@]}" "${pd_info[@]}")" '. + [$new]' <<<"$raid_status_json"
+            raid_status_json="$(
+                jq -c --argjson new "$(associate_array_to_json pd_info)" '. + [$new]' <<<"$raid_status_json"
+            )"
         done < <(echo "${storcli_out}" | grep -A "$((pd_cnt + 5))" "PD LIST" | tail -n "${pd_cnt}")
     done
 }
@@ -246,7 +248,9 @@ check_sas3() {
                 [虚拟磁盘中文状态]="${vd_stat_cn}"
             )
             # 将 pd_info append 到 raid_status_json 中
-            jq -c --argjson new "$(associate_array_to_json "${!vd_info[@]}" "${vd_info[@]}")" '. + [$new]' <<<"$raid_status_json"
+            raid_status_json="$(
+                jq -c --argjson new "$(associate_array_to_json vd_info)" '. + [$new]' <<<"$raid_status_json"
+            )"
         done
 
         unset pd_output
@@ -276,14 +280,16 @@ check_sas3() {
                 [物理磁盘中文状态]="${pd_stat_cn}"
             )
             # 将 pd_info append 到 raid_status_json 中
-            jq -c --argjson new "$(associate_array_to_json "${!pd_info[@]}" "${pd_info[@]}")" '. + [$new]' <<<"$raid_status_json"
+            raid_status_json="$(
+                jq -c --argjson new "$(associate_array_to_json pd_info)" '. + [$new]' <<<"$raid_status_json"
+            )"
         done
     done
 }
 
 check_adaptec() {
     local RAID_BIN=$1
-    local ctl_no="" # 这个未见到有多个阵列卡的可能只会有一个
+    local ctl_no="0" # 这个未见到有多个阵列卡的可能只会有一个
     local vd_output vd_line
     mapfile -t vd_output < <(
         "${RAID_BIN}" GETCONFIG 1 LD |
@@ -309,7 +315,9 @@ check_adaptec() {
             [虚拟磁盘中文状态]="${vd_stat_cn}"
         )
         # 将 pd_info append 到 raid_status_json 中
-        jq -c --argjson new "$(associate_array_to_json "${!vd_info[@]}" "${vd_info[@]}")" '. + [$new]' <<<"$raid_status_json"
+        raid_status_json="$(
+            jq -c --argjson new "$(associate_array_to_json vd_info)" '. + [$new]' <<<"$raid_status_json"
+        )"
     done
 
     local pd_output pd_line
@@ -339,7 +347,9 @@ check_adaptec() {
             [物理磁盘中文状态]="${pd_stat_cn}"
         )
         # 将 pd_info append 到 raid_status_json 中
-        jq -c --argjson new "$(associate_array_to_json "${!pd_info[@]}" "${pd_info[@]}")" '. + [$new]' <<<"$raid_status_json"
+        raid_status_json="$(
+            jq -c --argjson new "$(associate_array_to_json pd_info)" '. + [$new]' <<<"$raid_status_json"
+        )"
     done
 }
 
@@ -361,5 +371,6 @@ adaptec)
 *)
     exit 255
     ;;
-
 esac
+
+echo "${raid_status_json}" | jq -rc .

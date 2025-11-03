@@ -311,7 +311,7 @@ test_writability() {
     fi
 }
 
-get_storage_runtime_info() {
+get_mountpoint_runtime_info() {
     local json_array="[]"
     local mount_info
     local -a FILESYSTEMS=(ext2 ext3 ext4 btrfs xfs vfat ntfs jfs reiserfs zfs)
@@ -511,14 +511,14 @@ get_cpu_runtime_info() {
 }
 
 runtime() {
-    local storage_json memory_json cpu_json raid_type
+    local mountpoint_json memory_json cpu_json raid_type
     system_info="$(detect_system_info)"
     machine_type="$(echo $system_info | jq -r .machine_type)"
-    storage_json="$(get_storage_runtime_info)"
+    mountpoint_json="$(get_mountpoint_runtime_info)"
     memory_json="$(get_memory_runtime_info)"
     cpu_json="$(get_cpu_runtime_info)"
-    if [[ -z "$storage_json" ]]; then
-        storage_json="[]"
+    if [[ -z "$mountpoint_json" ]]; then
+        mountpoint_json="[]"
     fi
     local warnings='{}' cpu_used_percent memory_used_percent storage_warnings_list mount_points storage_unwritable_list unwritable_mount_points inode_mount_points
 
@@ -542,14 +542,14 @@ runtime() {
     fi
 
     storage_warnings_list="$(
-        echo "${storage_json}" |
+        echo "${mountpoint_json}" |
             jq --argjson threshold "${storage_threshold}" \
                 '[.[] | select(.size.used_percent > $threshold) | .target]'
     )"
 
     local inode_warnings_list
     inode_warnings_list="$(
-        echo "${storage_json}" |
+        echo "${mountpoint_json}" |
             jq --argjson threshold "${storage_threshold}" \
                 '[.[] | select(.inodes.used_percent > $threshold) | .target]'
     )"
@@ -575,7 +575,7 @@ runtime() {
     fi
 
     storage_unwritable_list="$(
-        echo "${storage_json}" |
+        echo "${mountpoint_json}" |
             jq '[.[] | select(.writable == false) | .target]'
     )"
 
@@ -589,31 +589,39 @@ runtime() {
     fi
     if [[ "${machine_type}" == "pm" ]]; then
         get_raid_type
-        local raid_health_json="{}"
+        local raid_status="{}"
         if [[ "${RAID_INFO[type]}" != "none" && -n "${RAID_INFO[bin]}" ]]; then
-            raid_health_json="$(
+            raid_status="$(
                 bash "${WORK_DIR}/tsc_raid_health_check.sh" \
                     "${RAID_INFO[type]}" "${RAID_INFO[bin]}" "${original_logfile}"
             )"
         fi
-        jq -n --argjson storage_data "${storage_json}" \
+        jq -n --argjson mountpoint_status "${mountpoint_json}" \
             --argjson memory_data "${memory_json}" \
             --argjson cpu_data "$cpu_json" \
             --argjson warnings_data "$warnings" \
-            --argjson raid_health "$raid_health_json" \
+            --argjson raid_status "$raid_status" \
             '{
-                storage: $storage_data,
+                storage: 
+                {
+                    mountpoint: $mountpoint_status,
+                    raid: $raid_status
+                },
                 memory: $memory_data,
                 cpu: $cpu_data,
-                warning: ($warnings_data + {raid_status: $raid_health.raid_status} + ( $raid_health.raid_count_mismatch? // {} ) )
+                raid_status: $raid_status,
+                warning: ($warnings_data + {raid_status: $raid_health} + ( $raid_health.raid_count_mismatch? // {} ) )
             }'
     else
-        jq -n --argjson storage_data "${storage_json}" \
+        jq -n --argjson mountpoint_status "${mountpoint_json}" \
             --argjson memory_data "${memory_json}" \
             --argjson cpu_data "$cpu_json" \
             --argjson warnings_data "$warnings" \
             '{
-                storage: $storage_data,
+                storage:
+                {
+                    mountpoint: $mountpoint_status,
+                },
                 memory: $memory_data,
                 cpu: $cpu_data,
                 warning: $warnings_data

@@ -1,11 +1,13 @@
 # release-note
 
-## Version=2.0.3.beta1
+## Version=2.0.3.beta3
 
 1. feat: 给 `tsc_iaas_info` 增加告警功能. 当执行 `--runtime` 时会生成结果告警对象 `warning`, 提供处理器, 内存, 存储使用率告警及存储健康状态告警, 并可额外指定告警阈值. 如此当 `zabbix` 调用时可直接读取该对象, 减轻在服务端计算压力;
 2. feat: 给 `tsc_iaas_info` 增加手工设置序列号功能. 当执行 `--sn` 时会用手工配置的序列号覆盖原保存的序列号, 否则会优先读取原配置中序列号. 如既未手工配置序列号, 原配置序列号也为空, 则尝试从硬件中读取序列号;
-3. doc: 补充 README.md
-4. TODO: install.sh 在第二次安装时会装到一半中断, 待检查;
+3. fix: 修复因 raid 判断方法问题导致的重复安装失败问题
+4. fix: 修复 tsc_iaas_info 采集 raid 卡重复问题
+5. fix: 调整 tsc_iaas_info --runtime 输出数据结构, 以及判断 `warning` 方法.
+6. TODO: 补充 README.md
 
 ## Version=2.0.2.beta
 
