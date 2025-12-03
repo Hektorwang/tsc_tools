@@ -110,7 +110,10 @@ get_location() {
 get_raid_type() {
     RAID_INFO[type]="none"
     RAID_INFO[bin]=""
-    if lspci | grep -qiP "Adaptec"; then
+    local lspci_info lsmod_info
+    lspci_info="$(lspci)"
+    lsmod_info="$(lsmod)"
+    if echo "${lspci_info}" | grep -qiP "Adaptec"; then
         RAID_INFO[type]="adaptec"
         if [[ -f /bin/arcconf ]]; then
             RAID_INFO[bin]="/bin/arcconf"
@@ -121,7 +124,7 @@ get_raid_type() {
         else
             RAID_INFO[bin]="$(command -v arcconf 2>/dev/null || echo false)"
         fi
-    elif lsmod | grep -qE "^mpt3sas" || lspci | grep -q "SAS3008"; then
+    elif echo "${lsmod_info}" | grep -qE "^mpt3sas" || echo "${lspci_info}" | grep -q "SAS3008"; then
         RAID_INFO[type]="mpt3sas"
         if [[ -f /bin/sas3ircu ]]; then
             RAID_INFO[bin]="/bin/sas3ircu"
@@ -132,7 +135,8 @@ get_raid_type() {
         else
             RAID_INFO[bin]="$(command -v sas3ircu 2>/dev/null || echo false)"
         fi
-    elif lsmod | grep -qE "^mpt2sas" || lspci | grep -q "LSI2308"; then
+    elif echo "${lsmod_info}" | grep -qE "^mpt2sas" ||
+        echo "${lspci_info}" | grep -q "LSI2308"; then
         RAID_INFO[type]="mpt2sas"
         if [[ -f /bin/sas2ircu ]]; then
             RAID_INFO[bin]="/bin/sas2ircu"
@@ -143,7 +147,7 @@ get_raid_type() {
         else
             RAID_INFO[bin]="$(command -v sas2ircu 2>/dev/null || echo false)"
         fi
-    elif lspci |
+    elif echo "${lspci_info}" |
         grep -qiP "LSI|AVAGO|MegaRAID|(RAID bus controller: Intel Corporation Lewisburg)"; then
         RAID_INFO[type]="lsi"
         if [[ -f /bin/storcli ]]; then
@@ -313,7 +317,8 @@ test_writability() {
 
 get_mountpoint_runtime_info() {
     local json_array="[]"
-    local mount_info
+    local mount_info_tmp
+    local -A mount_info
     local -a FILESYSTEMS=(ext2 ext3 ext4 btrfs xfs vfat ntfs jfs reiserfs zfs)
     local FS_TYPES
     FS_TYPES="$(
@@ -322,16 +327,18 @@ get_mountpoint_runtime_info() {
     )"
 
     mapfile -t mount_info < <(
-        findmnt -n -o TARGET,SOURCE,FSTYPE,OPTIONS -l -t "${FS_TYPES}"
+        findmnt -n -o TARGET,SOURCE,FSTYPE,OPTIONS -l -U -D -t "${FS_TYPES}"
     )
 
+    unset line
+    local line
     for line in "${mount_info[@]}"; do
         local mount_point fstype options source_device
         mount_point="$(echo "$line" | awk '{print $1}')"
         source_device="$(echo "$line" | awk '{print $2}')"
         fstype="$(echo "$line" | awk '{print $3}')"
         options="$(echo "$line" | awk '{print $4}')"
-
+        [[ ! -d "${mount_point}" ]] && continue
         local df_size_output
         df_size_output="$(df -B1 --portability "${mount_point}" 2>/dev/null || echo "0 0")"
         local size_total_bytes size_used_bytes
@@ -596,6 +603,7 @@ runtime() {
                     "${RAID_INFO[type]}" "${RAID_INFO[bin]}" "${original_logfile}"
             )"
         fi
+        # 在这里给warnings 添加raid 的pd, vd 告警,以及磁盘数量比对告警
         jq -n --argjson mountpoint_status "${mountpoint_json}" \
             --argjson memory_data "${memory_json}" \
             --argjson cpu_data "$cpu_json" \
@@ -609,7 +617,6 @@ runtime() {
                 },
                 memory: $memory_data,
                 cpu: $cpu_data,
-                raid_status: $raid_status,
                 warning: ($warnings_data + {raid_status: $raid_health} + ( $raid_health.raid_count_mismatch? // {} ) )
             }'
     else

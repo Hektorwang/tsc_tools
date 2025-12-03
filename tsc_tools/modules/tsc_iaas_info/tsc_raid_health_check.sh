@@ -94,7 +94,8 @@ array_to_json() {
 get_raid_type() {
     RAID_INFO[type]="none"
     RAID_INFO[bin]=""
-    if lspci | grep -qiP "Adaptec"; then
+    local lspci_info lsmod_info
+    if echo "${lspci_info}" | grep -qiP "Adaptec"; then
         RAID_INFO[type]="adaptec"
         if [[ -f /bin/arcconf ]]; then
             RAID_INFO[bin]="/bin/arcconf"
@@ -105,7 +106,7 @@ get_raid_type() {
         else
             RAID_INFO[bin]="$(command -v arcconf 2>/dev/null || echo false)"
         fi
-    elif lsmod | grep -qE "^mpt3sas" || lspci | grep -q "SAS3008"; then
+    elif echo "${lsmod_info}" | grep -qE "^mpt3sas" || echo "${lspci_info}" | grep -q "SAS3008"; then
         RAID_INFO[type]="mpt3sas"
         if [[ -f /bin/sas3ircu ]]; then
             RAID_INFO[bin]="/bin/sas3ircu"
@@ -116,7 +117,8 @@ get_raid_type() {
         else
             RAID_INFO[bin]="$(command -v sas3ircu 2>/dev/null || echo false)"
         fi
-    elif lsmod | grep -qE "^mpt2sas" || lspci | grep -q "LSI2308"; then
+    elif "${lsmod_info}" | grep -qE "^mpt2sas" ||
+        echo "${lspci_info}" | grep -q "LSI2308"; then
         RAID_INFO[type]="mpt2sas"
         if [[ -f /bin/sas2ircu ]]; then
             RAID_INFO[bin]="/bin/sas2ircu"
@@ -127,7 +129,7 @@ get_raid_type() {
         else
             RAID_INFO[bin]="$(command -v sas2ircu 2>/dev/null || echo false)"
         fi
-    elif lspci |
+    elif echo "${lspci_info}" |
         grep -qiP "LSI|AVAGO|MegaRAID|(RAID bus controller: Intel Corporation Lewisburg)"; then
         RAID_INFO[type]="lsi"
         if [[ -f /bin/storcli ]]; then
@@ -187,7 +189,7 @@ check_lsi() {
         local -A pd_info line
         # 摘出 vd list 这一段, 逐行对比 vd 状态, 并追加到总结果 raid_status_json
         while read -r line; do
-            pd_no="$(echo "${line}" | awk -F / '{print $1}')"
+            pd_no="$(echo "${line}" | awk '{print $1}')"
             pd_stat="$(echo "${line}" | awk '{print $3}')"
             for pd_keyword in "${PD_KEYWORDS[@]}"; do
                 if echo "${pd_stat}" | grep -iq "${pd_keyword%%|*}"; then

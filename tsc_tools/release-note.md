@@ -1,5 +1,18 @@
 # release-note
 
+## Version=2.0.3.beta5
+
+20251121
+
+1. fix(tsc_iaas_info): 修复了在 lsi 卡上取 pd 错误的问题.
+2. TODO(tsc_iaas_info): pd 数量对比告警功能.
+3. TODO: 补充 README.md
+
+## Version=2.0.3.beta4
+
+1. fix(tsc_tools/packages/install.sh):
+2. TODO: 补充 README.md
+
 ## Version=2.0.3.beta3
 
 1. feat: 给 `tsc_iaas_info` 增加告警功能. 当执行 `--runtime` 时会生成结果告警对象 `warning`, 提供处理器, 内存, 存储使用率告警及存储健康状态告警, 并可额外指定告警阈值. 如此当 `zabbix` 调用时可直接读取该对象, 减轻在服务端计算压力;
