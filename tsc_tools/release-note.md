@@ -1,17 +1,26 @@
 # release-note
 
+## Version=2.0.3.beta6
+
+20251203
+
+1. feat(`tsc_iaas_info`): 增加读取旧日志文件, 若磁盘数量不一致则告警功能
+2. fix(`tsc_iaas_info`): 修复 `lsi` 卡下的一堆执行问题.
+3. TODO: 补充 `README.md`
+4. TODO: 在 `arcconf` 和 `mpt3sas` 的 raid 卡下进行测试
+
 ## Version=2.0.3.beta5
 
 20251121
 
-1. fix(tsc_iaas_info): 修复了在 lsi 卡上取 pd 错误的问题.
-2. TODO(tsc_iaas_info): pd 数量对比告警功能.
-3. TODO: 补充 README.md
+1. fix(`tsc_iaas_info`): 修复了在 lsi 卡上取 pd 错误的问题.
+2. TODO(`tsc_iaas_info`): pd 数量对比告警功能.
+3. TODO: 补充 `README.md`
 
 ## Version=2.0.3.beta4
 
-1. fix(tsc_tools/packages/install.sh):
-2. TODO: 补充 README.md
+1. fix(tsc_tools/packages/install.sh)
+2. TODO: 补充 `README.md`
 
 ## Version=2.0.3.beta3
 
@@ -20,7 +29,7 @@
 3. fix: 修复因 raid 判断方法问题导致的重复安装失败问题
 4. fix: 修复 tsc_iaas_info 采集 raid 卡重复问题
 5. fix: 调整 tsc_iaas_info --runtime 输出数据结构, 以及判断 `warning` 方法.
-6. TODO: 补充 README.md
+6. TODO: 补充 `README.md`
 
 ## Version=2.0.2.beta
 

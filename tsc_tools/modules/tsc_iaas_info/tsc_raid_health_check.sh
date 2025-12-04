@@ -95,6 +95,8 @@ get_raid_type() {
     RAID_INFO[type]="none"
     RAID_INFO[bin]=""
     local lspci_info lsmod_info
+    lspci_info="$(lspci)"
+    lsmod_info="$(lsmod)"
     if echo "${lspci_info}" | grep -qiP "Adaptec"; then
         RAID_INFO[type]="adaptec"
         if [[ -f /bin/arcconf ]]; then
@@ -117,7 +119,7 @@ get_raid_type() {
         else
             RAID_INFO[bin]="$(command -v sas3ircu 2>/dev/null || echo false)"
         fi
-    elif "${lsmod_info}" | grep -qE "^mpt2sas" ||
+    elif echo "${lsmod_info}" | grep -qE "^mpt2sas" ||
         echo "${lspci_info}" | grep -q "LSI2308"; then
         RAID_INFO[type]="mpt2sas"
         if [[ -f /bin/sas2ircu ]]; then
