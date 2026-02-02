@@ -9,7 +9,7 @@ shopt -s nullglob
 PROJECT_DIR="$(dirname "$(readlink -f "$0")")" && cd "${PROJECT_DIR}" || exit 99
 
 # 定义版本和日期变量
-version="$(awk -F '=' '/Version=/{print $2;exit}' <"${PROJECT_DIR}"/tsc_tools/release-note.md)"
+version="$(awk -F '=' '/Version=/{print $2;exit}' <"${PROJECT_DIR}"/release-note.md)"
 createdate="$(date "+%Y%m%d")"
 
 # 定义文件和目录
@@ -23,6 +23,7 @@ mkdir -p "${PACKAGE_SOURCE_DIR}"
 
 # 将需要打包的文件和目录复制到临时目录
 \cp "${PROJECT_DIR}"/README.md "${PROJECT_DIR}"/tsc_tools/
+\cp "${PROJECT_DIR}"/release-note.md "${PROJECT_DIR}"/tsc_tools/
 # \cp "${PROJECT_DIR}"/LICENSE-GPL.txt "${PROJECT_DIR}"/tsc_tools/
 # \cp "${PROJECT_DIR}"/NOTICE.txt "${PROJECT_DIR}"/tsc_tools/
 # \cp "${PROJECT_DIR}"/LICENSE-MIT.txt "${PROJECT_DIR}"/tsc_tools/
@@ -39,8 +40,8 @@ echo "Build Start --> ${RELEASE_FILE}"
 mkdir -p "${RELEASE_DIR}"
 
 # 使用 makeself 打包
+# --help-header tsc_tools/README.md \
 "${PROJECT_DIR}"/makeself.sh --needroot --tar-quietly \
-    --help-header tsc_tools/README.md \
     "${PACKAGE_SOURCE_DIR}" "${RELEASE_FILE}" \
     "TSC Tools" \
     ./install.sh
