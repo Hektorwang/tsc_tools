@@ -120,48 +120,52 @@ config_ssh() {
     LOGINFO "${FUNCNAME[0]}"
     local ssh_client_config="/etc/ssh/ssh_config"
     local sshd_server_config="/etc/ssh/sshd_config"
-    local client_include_dir="/etc/ssh/ssh_config.d"
-    local server_include_dir="/etc/ssh/sshd_config.d"
-    local client_include_file="${client_include_dir}/tsc.conf"
-    local server_include_file="${server_include_dir}/tsc.conf"
+    # local client_include_dir="/etc/ssh/ssh_config.d"
+    # local server_include_dir="/etc/ssh/sshd_config.d"
+    # local client_include_file="${client_include_dir}/tsc.conf"
+    # local server_include_file="${server_include_dir}/tsc.conf"
+    # touch "${client_include_file}" "${server_include_file}"
     local time14
     time14="$(date +%Y%m%d%H%M%S)"
-    mkdir -p "${client_include_dir}"
-    mkdir -p "${server_include_dir}"
+    # mkdir -p "${client_include_dir}"
+    # mkdir -p "${server_include_dir}"
     LOGDEBUG "$(\cp -v "${ssh_client_config}" "${ssh_client_config}.bak_${time14}" 2>&1)"
     LOGDEBUG "$(\cp -v "${sshd_server_config}" "${sshd_server_config}.bak_${time14}" 2>&1)"
     LOGINFO "Configuring SSH client"
     sed -E -i '/^[[:space:]]*StrictHostKeyChecking/d' "${ssh_client_config}"
     sed -E -i '/^[[:space:]]*ConnectTimeout/d' "${ssh_client_config}"
-    sed -E -i '/^[[:space:]]*Include[[:space:]]+'${client_include_file}'/d' "${ssh_client_config}"
-    if ! grep -qE "^[[:space:]]*Include[[:space:]]+${client_include_file}\b" "${ssh_client_config}"; then
-        echo "Include ${client_include_file}" >>"${ssh_client_config}"
-    fi
-    sed -E -i '/# START: TSC/,/# END: TSC/d' "${client_include_file}"
-    cat <<EOF >"${client_include_file}"
+    # # sed -E -i '/^[[:space:]]*Include[[:space:]]+'${client_include_file}'/d' "${ssh_client_config}"
+    # sed -E -i '\#^[[:space:]]*Include[[:space:]]+'${client_include_file}'#d' "${ssh_client_config}"
+    # if ! grep -qE "^[[:space:]]*Include[[:space:]]+${client_include_file}\b" "${ssh_client_config}"; then
+    #     echo "Include ${client_include_file}" >>"${ssh_client_config}"
+    # fi
+    # [[ -s "${client_include_file}" ]] && sed -E -i '/# START: TSC/,/# END: TSC/d' "${client_include_file}"
+    sed -E -i '/# START: TSC/,/# END: TSC/d' "${ssh_client_config}"
+    cat <<EOF >>"${ssh_client_config}"
 # START: TSC
 Host *
     StrictHostKeyChecking no
     ConnectTimeout 30
 # END: TSC
 EOF
-    LOGINFO "SSH client configuration written to ${client_include_file}"
-
+    LOGINFO "SSH client configuration written to ${ssh_client_config}"
     LOGINFO "Configuring SSH server"
     sed -E -i '/^[[:space:]]*LoginGraceTime/d' "${sshd_server_config}"
     sed -E -i '/^[[:space:]]*UseDNS/d' "${sshd_server_config}"
     sed -E -i '/^[[:space:]]*AllowTcpForwarding/d' "${sshd_server_config}"
     sed -E -i '/^[[:space:]]*GatewayPorts/d' "${sshd_server_config}"
     sed -E -i '/^[[:space:]]*Port/d' "${sshd_server_config}"
-    sed -E -i '/^[[:space:]]*Include[[:space:]]+'${server_include_file}'/d' "${sshd_server_config}"
-    if ! grep -qE "^[[:space:]]*Include[[:space:]]+${server_include_file}\b" "${sshd_server_config}"; then
-        echo "Include ${server_include_file}" >>"${sshd_server_config}"
-        LOGINFO "Added Include directive for ${server_include_file}"
-    else
-        LOGINFO "Include directive for ${server_include_file} already exists"
-    fi
-    sed -E -i '/# START: TSC/,/# END: TSC/d' "${server_include_file}"
-    cat <<EOF >"${server_include_file}"
+    # sed -E -i '/^[[:space:]]*Include[[:space:]]+'${server_include_file}'/d' "${sshd_server_config}"
+    # sed -E -i '\#^[[:space:]]*Include[[:space:]]+'${server_include_file}'#d' "${sshd_server_config}"
+    # if ! grep -qE "^[[:space:]]*Include[[:space:]]+${server_include_file}\b" "${sshd_server_config}"; then
+    #     echo "Include ${server_include_file}" >>"${sshd_server_config}"
+    #     LOGINFO "Added Include directive for ${server_include_file}"
+    # else
+    #     LOGINFO "Include directive for ${server_include_file} already exists"
+    # fi
+    # [[ -s "${server_include_file}" ]] && sed -E -i '/# START: TSC/,/# END: TSC/d' "${server_include_file}"
+    sed -E -i '/# START: TSC/,/# END: TSC/d' "${sshd_server_config}"
+    cat <<EOF >>"${sshd_server_config}"
 # START: TSC
 LoginGraceTime 60
 UseDNS no
@@ -174,17 +178,18 @@ EOF
             LOGERROR "Invalid sshd port: ${_arg_sshd_port}"
             return 1
         fi
-        echo "Port ${_arg_sshd_port}" >>"${server_include_file}"
+        echo "Port ${_arg_sshd_port}" >>"${sshd_server_config}"
     fi
-    echo "# END: TSC" >>"${server_include_file}"
-    LOGINFO "SSH server configuration written to ${server_include_file}"
+    echo "# END: TSC" >>"${sshd_server_config}"
+    LOGINFO "SSH server configuration written to ${sshd_server_config}"
 
     LOGINFO "Restarting SSH server"
+    sleep 1
     local service_name=""
-    if systemctl list-unit-files --type=service --no-pager --legend=false --full |
+    if systemctl list-unit-files --type=service --no-pager --full |
         grep -qE "^sshd.service\b"; then
         service_name="sshd"
-    elif systemctl list-unit-files --type=service --no-pager --legend=false --full |
+    elif systemctl list-unit-files --type=service --no-pager --full |
         grep -qE "^ssh.service\b"; then
         service_name="ssh"
     else
@@ -228,7 +233,7 @@ config_services() {
         ["tuned.service"]=1
         ["tmp.mount"]=2
     )
-    local -A enabled_services
+    local enabled_services
     mapfile -t enabled_services < <(
         systemctl list-unit-files --type=service --type=socket \
             --state=enabled -l --no-pager --no-legend |
@@ -277,7 +282,7 @@ disable_firewall() {
     # [[ -f /etc/sysconfig/iptables ]] && : >/etc/sysconfig/iptables || true
     if (
         systemctl list-unit-files --type=service \
-            --no-pager --legend=false --full |
+            --no-pager --full |
             grep -E "^firewalld.service\b"
     ) &>/dev/null; then
         systemctl disable --now firewalld.service &>/dev/null
@@ -285,7 +290,7 @@ disable_firewall() {
     fi
     if (
         systemctl list-unit-files --type=service \
-            --no-pager --legend=false --full |
+            --no-pager --full |
             grep -E "^iptables.service\b"
     ) &>/dev/null; then
         systemctl disable --now iptables.service &>/dev/null
@@ -293,7 +298,7 @@ disable_firewall() {
     fi
     if (
         systemctl list-unit-files --type=service \
-            --no-pager --legend=false --full |
+            --no-pager --full |
             grep -E "^ufw.service\b"
     ) &>/dev/null; then
         ufw disable 2>/dev/null || true
@@ -303,7 +308,7 @@ disable_firewall() {
     fi
     if (
         systemctl list-unit-files --type=service \
-            --no-pager --legend=false --full |
+            --no-pager --full |
             grep -E "^nftables.service\b"
     ) &>/dev/null; then
         systemctl disable --now nftables.service &>/dev/null
@@ -543,7 +548,7 @@ config_chrony() {
 
 config_sar() {
     LOGINFO "${FUNCNAME[0]}"
-    if [[ ! -f /etc/sysconfig/sysstat ]] || ! rpm -q sysstat; then
+    if [[ ! -f /etc/sysconfig/sysstat ]] || ! rpm --quiet -q sysstat; then
         LOGWARNING "sysstat package is not installed."
         return 1
     fi
@@ -560,9 +565,15 @@ config_rc_local() {
     LOGINFO "${FUNCNAME[0]}"
     chmod a+x /etc/rc.local
     chmod a+x /etc/rc.d/rc.local
-    if systemctl list-unit-files --type=service --no-pager --legend=false --full |
+    if systemctl list-unit-files --type=service --no-pager --full |
         grep -qE "^rc-local.service\b"; then
-        systemctl enable rc-local.service
+        local SERVICE_FILE
+        SERVICE_FILE="$(systemctl show -p FragmentPath rc-local.service | cut -d= -f2)"
+        if ! grep -q "\[Install\]" "$SERVICE_FILE"; then
+            printf "\n[Install]\nWantedBy=multi-user.target\n" | sudo tee -a "$SERVICE_FILE" >/dev/null
+        fi
+        systemctl daemon-reload
+        systemctl enable rc-local.service >/dev/null
     fi
     LOGINFO "${FUNCNAME[0]}": Configuration takes effect on next boot.
     LOGSUCCESS "${FUNCNAME[0]}"

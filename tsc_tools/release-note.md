@@ -1,5 +1,15 @@
 # release-note
 
+## Version=2.0.3.beta7
+
+20260202
+
+1. fix(tsc_sysinit): 解决 ssh 注入配置时定制化配置文件不存在时报错退出问题, 因EL7自带的sshd不支持 Include, 直接改成将参数写入主配置.
+2. fix(tsc_sysinit): 解决sar配置时未消除默认stdout问题
+3. fix(tsc_sysinit): 解决配置 rc-local.service 时未注入启动级问题
+4. fix(func): 解决了 backup_dir_with_rotation 函数使用了 bash 4.3不支持语法问题
+5. fix(tsc_iaas_info): 解决 findmnt 在 EL7 系统上不支持 -U 问题
+
 ## Version=2.0.3.beta6
 
 20251203
