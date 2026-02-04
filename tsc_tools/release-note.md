@@ -1,5 +1,16 @@
 # release-note
 
+## Version=2.0.3.beta8
+
+20260603
+
+1. fix(tsc_iaas_info): findmnt 在 el7 下不支持 `-U` 参数, 删除该参数
+2. fix(tsc_iaas_info): grep -c 在找不到 pattern 时返回 false, 影响计数, 修改为用 awk 计数
+3. fix(tsc_iaas_info): 修复了 runtime 函数在不带 raid 的 pm 上运行的很多问题
+4. fix(tsc_iaas_info): 修复了在 `MegaRaid 9560-16i` 下运行问题
+5. fix(tsc_iaas_info): 修复了在 `UN Adaptec RAID P460-M2` 下运行问题
+6. fix(tsc_iaas_info): 修复在 el7 下计算磁盘变更问题
+
 ## Version=2.0.3.beta7
 
 20260202
@@ -8,7 +19,7 @@
 2. fix(tsc_sysinit): 解决sar配置时未消除默认stdout问题
 3. fix(tsc_sysinit): 解决配置 rc-local.service 时未注入启动级问题
 4. fix(func): 解决了 backup_dir_with_rotation 函数使用了 bash 4.3不支持语法问题
-5. fix(tsc_iaas_info): 解决 findmnt 在 EL7 系统上不支持 -U 问题
+5. fix(build.sh): 集成包去掉将 README.md 作为帮助的功能, 因为其中带了 markdown 语法影响集成包运行
 
 ## Version=2.0.3.beta6
 

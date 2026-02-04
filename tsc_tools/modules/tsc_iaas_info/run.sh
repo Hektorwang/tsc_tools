@@ -328,7 +328,8 @@ get_mountpoint_runtime_info() {
     )"
 
     mapfile -t mount_info < <(
-        findmnt -n -o TARGET,SOURCE,FSTYPE,OPTIONS -l -U -D -t "${FS_TYPES}"
+        findmnt -n -o TARGET,SOURCE,FSTYPE,OPTIONS -l -D -t "${FS_TYPES}"
+        # findmnt -n -o TARGET,SOURCE,FSTYPE,OPTIONS -l -U -D -t "${FS_TYPES}" # EL7 findmnt 不支持 -U
     )
 
     unset line
@@ -600,15 +601,15 @@ runtime() {
         if [[ -f "${original_logfile}" ]]; then
             local disk_info pd_cnt direct_disk_cnt ori_pd_cnt ori_direct_disk_cnt
             disk_info="$(get_disk_info "${machine_type}" | jq -c . 2>/dev/null || echo '{}')"
-            pd_cnt="$(echo ${disk_info} | jq . | grep -c '"type":"raid"')"
-            direct_disk_cnt="$(echo ${disk_info} | jq . | grep -c '"type":"direct"')"
-            ori_pd_cnt="$(cat "${original_logfile}" | jq .storage | grep -c '"type":"raid"')"
-            ori_direct_disk_cnt="$(cat "${original_logfile}" | jq .storage | grep -c '"type":"direct"')"
+            pd_cnt="$(echo "${disk_info}" | jq . | awk '/"type": "raid"/{n++}END{print n+0}')"
+            direct_disk_cnt="$(echo "${disk_info}" | jq . | awk '/"type": "direct"/{n++}END{print n+0}')"
+            ori_pd_cnt="$(cat "${original_logfile}" | jq .storage | awk '/"type": "raid"/{n++}END{print n+0}')"
+            ori_direct_disk_cnt="$(cat "${original_logfile}" | jq .storage | awk '/"type": "direct"/{n++}END{print n+0}')"
             if [[ "${pd_cnt}" != "${ori_pd_cnt}" ]]; then
                 warnings="$(
                     echo "$warnings" |
                         jq --arg pd_cnt "$pd_cnt" \
-                            jq --arg ori_pd_cnt "$ori_pd_cnt" \
+                            --arg ori_pd_cnt "$ori_pd_cnt" \
                             '."pd_cnt_diffrent" = "raid disk count changed from \($ori_pd_cnt) to \($pd_cnt)."'
                 )"
             fi
@@ -616,13 +617,13 @@ runtime() {
                 warnings="$(
                     echo "$warnings" |
                         jq --arg direct_disk_cnt "$direct_disk_cnt" \
-                            jq --arg ori_direct_disk_cnt "$ori_direct_disk_cnt" \
+                            --arg ori_direct_disk_cnt "$ori_direct_disk_cnt" \
                             '."direct_disk_cnt_diffrent" = "direct disk count changed from \($ori_direct_disk_cnt) to \($direct_disk_cnt)."'
                 )"
             fi
         fi
         local raid_status="{}"
-        if [[ "${RAID_INFO[type]}" != "none" && -n "${RAID_INFO[bin]}" ]]; then
+        if [[ "${RAID_INFO[type]}" != "none" ]] && [[ -n "${RAID_INFO[bin]}" ]]; then
             raid_status="$(
                 bash "${WORK_DIR}/tsc_raid_health_check.sh" \
                     "${RAID_INFO[type]}" "${RAID_INFO[bin]}" "${original_logfile}"
@@ -630,19 +631,19 @@ runtime() {
             raid_warning="$(
                 echo "${raid_status}" |
                     jq '[ .[] | select (
-                        ( has("虚拟磁盘中文状态") and (.虚拟磁盘中文状态|index(信息)) == null ) or
-                        ( has("物理磁盘中文状态") and (.物理磁盘中文状态|index(信息)) == null )
+                        ( has("虚拟磁盘中文状态") and (.["虚拟磁盘中文状态"]|index("信息")) == null ) or
+                        ( has("物理磁盘中文状态") and (.["物理磁盘中文状态"]|index("信息")) == null )
                     ) ]'
             )"
-        fi
-        # 在这里给warnings 添加raid 的pd, vd 告警,以及磁盘数量比对告警
-        jq -n --argjson mountpoint_status "${mountpoint_json}" \
-            --argjson memory_data "${memory_json}" \
-            --argjson cpu_data "$cpu_json" \
-            --argjson warnings_data "$warnings" \
-            --argjson raid_status "${raid_status}" \
-            --argjson raid_warning "${raid_warning}" \
-            '{
+
+            # 在这里给warnings 添加raid 的pd, vd 告警,以及磁盘数量比对告警
+            jq -n --argjson mountpoint_status "${mountpoint_json}" \
+                --argjson memory_data "${memory_json}" \
+                --argjson cpu_data "$cpu_json" \
+                --argjson warnings_data "$warnings" \
+                --argjson raid_status "${raid_status}" \
+                --argjson raid_warning "${raid_warning}" \
+                '{
                 storage: 
                 {
                     mountpoint: $mountpoint_status,
@@ -652,6 +653,21 @@ runtime() {
                 cpu: $cpu_data,
                 warning: ($warnings_data + {raid_status: $raid_warning})
             }'
+        else
+            jq -n --argjson mountpoint_status "${mountpoint_json}" \
+                --argjson memory_data "${memory_json}" \
+                --argjson cpu_data "$cpu_json" \
+                --argjson warnings_data "$warnings" \
+                '{
+                storage: 
+                {
+                    mountpoint: $mountpoint_status,
+                },
+                memory: $memory_data,
+                cpu: $cpu_data,
+                warning: ($warnings_data)
+            }'
+        fi
     else
         jq -n --argjson mountpoint_status "${mountpoint_json}" \
             --argjson memory_data "${memory_json}" \
