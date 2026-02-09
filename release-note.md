@@ -1,5 +1,9 @@
 # release-note
 
+## Version=2.0.3.beta9
+
+1. feat: Added CI/CD workflows
+
 ## Version=2.0.3.beta8
 
 1. fix(tsc_iaas_info): findmnt 在 el7 下不支持 `-U` 参数, 删除该参数
