@@ -4,12 +4,8 @@ on:
   push:
     tags:
       - 'v*.*.*'
+      - 'v*.*.*-*'
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to release (e.g., 2.0.3.beta8)'
-        required: true
-        type: string
 
 jobs:
   build-and-release:
@@ -25,31 +21,27 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y dos2unix gzip tar jq
+          sudo apt-get install -y dos2unix gzip tar
 
-      - name: Extract version
+      - name: Extract version from tag
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION="${GITHUB_REF#refs/tags/v}"
-          fi
+          VERSION="${GITHUB_REF#refs/tags/v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
+          echo "📦 Building version: $VERSION"
 
-      - name: Make build script executable
-        run: chmod +x build.sh
-
-      - name: Build release package
-        run: ./build.sh
+      - name: Run build.sh
+        run: |
+          chmod +x build.sh
+          ./build.sh
 
       - name: Get release file info
         id: release_info
         run: |
           release_file=$(find release -name "tsc_tools-*.sh" | head -n 1)
+          
           if [ -z "$release_file" ]; then
-            echo "No release file found"
+            echo "❌ No release file found"
             exit 1
           fi
           
@@ -62,9 +54,9 @@ jobs:
           echo "filesize=$filesize" >> $GITHUB_OUTPUT
           echo "checksum=$checksum" >> $GITHUB_OUTPUT
           
-          echo "Release file: $filename"
-          echo "Size: $filesize"
-          echo "SHA256: $checksum"
+          echo "📄 Release file: $filename"
+          echo "📊 Size: $filesize"
+          echo "🔐 SHA256: $checksum"
 
       - name: Generate release notes
         id: release_notes
@@ -72,15 +64,21 @@ jobs:
           cat > release_notes.md << 'EOF'
           ## TSC Tools Release ${{ steps.version.outputs.version }}
           
-          ### Package Information
-          - **File**: ${{ steps.release_info.outputs.filename }}
+          ### 📦 Package Information
+          - **File**: `${{ steps.release_info.outputs.filename }}`
           - **Size**: ${{ steps.release_info.outputs.filesize }}
           - **SHA256**: `${{ steps.release_info.outputs.checksum }}`
           
-          ### Installation
+          ### 📥 Installation
+          
           ```bash
-          # Download and install
+          # Download the release file
+          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.release_info.outputs.filename }}
+          
+          # Make it executable
           chmod +x ${{ steps.release_info.outputs.filename }}
+          
+          # Run the installer (requires root)
           sudo ./${{ steps.release_info.outputs.filename }}
           
           # Source the profile
@@ -90,28 +88,31 @@ jobs:
           tsc --help
           ```
           
-          ### What's Changed
+          ### ✅ Verification
+          
+          Verify the package integrity:
+          ```bash
+          sha256sum ${{ steps.release_info.outputs.filename }}
+          # Expected: ${{ steps.release_info.outputs.checksum }}
+          ```
+          
+          ### 📋 What's Changed
+          
           See [release-note.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/release-note.md) for detailed changes.
           
-          ### Supported Environments
+          ### 🖥️ Supported Environments
+          
           - **Architectures**: x86_64, aarch64
           - **Distributions**: RedHat 7/8/9, Euler (all versions)
           - **Service Manager**: systemd
-          
-          ### Verification
-          After installation, verify the package integrity:
-          ```bash
-          sha256sum ${{ steps.release_info.outputs.filename }}
-          # Should match: ${{ steps.release_info.outputs.checksum }}
-          ```
+          - **Root Required**: Yes
           EOF
           
-          echo "Release notes generated"
+          echo "✅ Release notes generated"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', github.event.inputs.version) || github.ref_name }}
           name: Release ${{ steps.version.outputs.version }}
           body_path: release_notes.md
           files: ${{ steps.release_info.outputs.filepath }}
@@ -120,9 +121,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload artifact for reference
-        uses: actions/upload-artifact@v4
-        with:
-          name: tsc-tools-release-${{ steps.version.outputs.version }}
-          path: release/
-          retention-days: 90
+      - name: Release Summary
+        run: |
+          echo "🎉 Release created successfully!"
+          echo "📦 Version: ${{ steps.version.outputs.version }}"
+          echo "📄 File: ${{ steps.release_info.outputs.filename }}"
+          echo "🔗 URL: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"

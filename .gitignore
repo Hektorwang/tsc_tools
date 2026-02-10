@@ -3,5 +3,26 @@ __pycache__
 /.vscode
 /release
 /tmp
+/stage
 storcli.log
+*.log
 !.gitignore
+
+# Build artifacts
+*.tar.gz
+*.zip
+*.run
+
+# Test outputs
+test-results/
+coverage/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Editor specific
+*.swp
+*.swo
+*~
+.idea/
