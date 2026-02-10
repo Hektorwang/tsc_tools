@@ -35,7 +35,9 @@ elif [[ "${sar_collector}" == "systemd" ]]; then
 	fi
 fi
 
-/bin/rm -rf /tmp/CollectSar 2>/dev/null
+if [[ -d "/tmp/CollectSar" ]] && [[ "${PWD}" != "/tmp/CollectSar" ]]; then
+    rm -rf "/tmp/CollectSar"
+fi
 
 \mv /home/fox/CollectSar /tmp/CollectSar
 if command -v systemctl &>/dev/null; then
