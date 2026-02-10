@@ -1,4 +1,7 @@
 # release-note
+## Version=2.0.3.beta10
+
+1. chroe: update CI workflows
 
 ## Version=2.0.3.beta9
 
